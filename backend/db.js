@@ -1,20 +1,42 @@
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
+
+// Render hands the whole connection over as one string, local docker sets the
+// parts, so the string wins when it is there.
+const url = process.env.DATABASE_URL;
+
+// A managed host refuses a plain connection, and Render's chain is not in the
+// container trust store. Local docker speaks no TLS at all, so this follows
+// DB_SSL and otherwise turns on only for a url pointing off this machine.
+function sslMode() {
+  const set = process.env.DB_SSL;
+  if (set === 'false') return false;
+  if (set === 'true') return { rejectUnauthorized: false };
+  return url && !/@(localhost|127\.0\.0\.1)[:/]/.test(url) ? { rejectUnauthorized: false } : false;
+}
 
 // pooled from the start, connection-per-request bit us on the last project
-const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  connectTimeout: 3000, // fail fast, otherwise /api/health just hangs when mysql is down
-  timezone: 'Z', // store and read UTC, learned this the hard way on RSS timestamps
+const pool = new Pool({
+  ...(url
+    ? { connectionString: url }
+    : {
+        host: process.env.DB_HOST,
+        port: Number(process.env.DB_PORT) || 5432,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_NAME,
+      }),
+  ssl: sslMode(),
+  max: 10,
+  connectionTimeoutMillis: 3000, // fail fast, otherwise /api/health just hangs when postgres is down
 });
 
+// An idle client dropped by the server raises on the pool with no query to
+// attach to, and pg treats an unhandled one as fatal. Render's free tier drops
+// idle connections, so this is the normal case rather than an edge.
+pool.on('error', (err) => console.error('idle client dropped:', err.code || err.message));
+
 async function ping() {
-  const [rows] = await pool.query('SELECT 1 AS ok');
+  const { rows } = await pool.query('SELECT 1 AS ok');
   return rows[0].ok === 1;
 }
 

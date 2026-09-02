@@ -34,7 +34,7 @@ export default function StatusPage() {
 
   const rows: [string, boolean | null, string][] = [
     ['Express API', apiUp, apiUp === false ? 'not reachable on :4000' : ''],
-    ['MySQL', health?.db ?? null, health?.dbError ?? ''],
+    ['PostgreSQL', health?.db ?? null, health?.dbError ?? ''],
     ['FMP key loaded', health?.fmpKey ?? null, ''],
   ];
 

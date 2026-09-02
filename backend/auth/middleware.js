@@ -71,8 +71,8 @@ async function requireAuth(req, res, next) {
     // The database being unreachable is not evidence the account is gone. The
     // token is signed and unexpired, which is exactly the assurance this app
     // had before the check existed, so the request goes through and the failure
-    // is logged. Failing closed here would take the whole desk down with MySQL,
-    // and nothing else on it needs MySQL at all.
+    // is logged. Failing closed here would take the whole desk down with postgres,
+    // and nothing else on it needs postgres at all.
     console.error('account check unavailable, trusting signed token:', err.code || err.message);
   }
 

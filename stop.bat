@@ -10,9 +10,9 @@ taskkill /F /FI "WINDOWTITLE eq MacroDesk Web*" >nul 2>&1
 echo   servers stopped
 
 REM stop, not down: `down` would remove the container and you would wait for
-REM MySQL to re-initialise next time. The data volume survives either way.
+REM Postgres to re-initialise next time. The data volume survives either way.
 docker compose stop >nul 2>&1
-echo   mysql stopped
+echo   database stopped
 
 echo.
 echo Done.

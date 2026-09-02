@@ -1,21 +1,31 @@
 services:
   db:
-    image: mysql:8
-    container_name: macrodesk-mysql
+    image: postgres:18
+    container_name: macrodesk-postgres
     environment:
-      MYSQL_ROOT_PASSWORD: devroot
-      MYSQL_DATABASE: macrodesk
+      POSTGRES_USER: macrodesk
+      POSTGRES_PASSWORD: devroot
+      POSTGRES_DB: macrodesk
     ports:
-      # loopback only. Bare "3306:3306" publishes the database on every
+      # loopback only. Bare "5433:5432" publishes the database on every
       # interface, and the password below is the one in .env.example.
-      - "127.0.0.1:3306:3306"
+      #
+      # 5433 on the host because a natively installed postgres already holds
+      # 5432 on the dev box, and docker reports that clash as a permissions error.
+      - "127.0.0.1:5433:5432"
     volumes:
-      - dbdata:/var/lib/mysql
-    # health check so we can tell "mysql is booting" apart from "mysql is broken"
+      # 18+ wants the mount one level up at /var/lib/postgresql and keeps its
+      # data in a version-named subdirectory. Mounting .../data directly aborts
+      # the boot with "unused mount/volume".
+      #
+      # pgdata, not the old dbdata: postgres will not initialise into a
+      # directory holding a mysql data dir and the failure reads as a crash loop
+      - pgdata:/var/lib/postgresql
+    # health check so we can tell "postgres is booting" apart from "postgres is broken"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pdevroot"]
+      test: ["CMD-SHELL", "pg_isready -U macrodesk -d macrodesk"]
       interval: 5s
       retries: 12
 
 volumes:
-  dbdata:
+  pgdata:

@@ -1,0 +1,69 @@
+# Two web services and a database. The browser only ever talks to macrodesk-web:
+# every frontend call is a relative /api/... path that next.config.ts proxies to
+# API_ORIGIN server side, so the session cookie stays same origin and CORS never
+# enters into it.
+
+databases:
+  - name: macrodesk-db
+    databaseName: macrodesk
+    user: macrodesk
+    postgresMajorVersion: "18"
+    plan: basic-256mb
+
+services:
+  - type: web
+    name: macrodesk-api
+    runtime: node
+    rootDir: backend
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    # runs against the new release before it takes traffic, so the schema is
+    # never behind the code that expects it
+    preDeployCommand: npm run migrate
+    # open, and reports a dead database as db:false rather than a bad status, so
+    # a database outage does not get the whole api restarted out from under it
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: macrodesk-db
+          property: connectionString
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_PROVIDER
+        value: local
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        fromService:
+          name: macrodesk-web
+          type: web
+          property: host
+      - key: FMP_API_KEY
+        sync: false
+      - key: FRED_API_KEY
+        sync: false
+
+  - type: web
+    name: macrodesk-web
+    runtime: node
+    rootDir: frontend
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      # the api's hostname, which next.config.ts turns into the proxy target.
+      # It has to be here rather than filled in later: rewrites are baked into
+      # the build, so a first build without it deploys a desk that reaches nothing.
+      - key: API_HOST
+        fromService:
+          name: macrodesk-api
+          type: web
+          property: host
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production

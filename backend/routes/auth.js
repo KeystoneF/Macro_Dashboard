@@ -73,7 +73,10 @@ router.post('/login', async (req, res) => {
     console.error(message);
     // a database that will not answer is not the analyst's fault, and saying so
     // beats a blank error box
-    const down = err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT';
+    // pg's own connect timeout carries no code, only a message
+    const down =
+      ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND'].includes(err.code) ||
+      /timeout exceeded when trying to connect/.test(err.message || '');
     res.status(down ? 503 : 500).json({
       error: down ? 'cannot reach the account database' : message,
     });

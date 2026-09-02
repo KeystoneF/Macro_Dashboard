@@ -10,13 +10,12 @@ const { pool } = require('../db');
 async function main() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
-      name VARCHAR(255) NOT NULL,
-      ran_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (name)
-    ) ENGINE=InnoDB
+      name VARCHAR(255) PRIMARY KEY,
+      ran_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
   `);
 
-  const [done] = await pool.query('SELECT name FROM schema_migrations');
+  const { rows: done } = await pool.query('SELECT name FROM schema_migrations');
   const already = new Set(done.map((r) => r.name));
 
   const files = fs
@@ -34,7 +33,7 @@ async function main() {
     for (const stmt of sql.split(/;\s*$/m).map((s) => s.trim()).filter(Boolean)) {
       await pool.query(stmt);
     }
-    await pool.query('INSERT INTO schema_migrations (name) VALUES (?)', [file]);
+    await pool.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
     console.log(`ran   ${file}`);
   }
 

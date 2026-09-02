@@ -197,9 +197,6 @@ export default function NewsPage() {
           <div style={T.cardHead}>
             <div>
               <h2 style={T.h2}>Raw feed</h2>
-              <p style={{ ...T.desc, marginBottom: 0 }}>
-                Unfiltered and reverse chronological. Nothing here is ranked or summarised.
-              </p>
             </div>
             <span style={{ fontSize: 11.5, color: COLOR.dim }}>
               {feed ? `${shown.length} of ${feed.items.length}` : ''}

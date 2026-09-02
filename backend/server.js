@@ -18,7 +18,9 @@ const app = express();
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000')
   .split(',')
   .map((o) => o.trim())
-  .filter(Boolean);
+  .filter(Boolean)
+  // render supplies a bare hostname, and an Origin header always carries a scheme
+  .map((o) => (/^https?:\/\//.test(o) ? o : `https://${o}`));
 
 app.use(
   cors({
@@ -45,7 +47,7 @@ app.use('/api/markets', requireAuth, require('./routes/markets'));
 app.use('/api/news', requireAuth, require('./routes/news'));
 app.use('/api/valuation', requireAuth, require('./routes/valuation'));
 
-// health reports db separately so a dead mysql does not look like a dead api
+// health reports db separately so a dead postgres does not look like a dead api
 app.get('/api/health', async (req, res) => {
   let db = false;
   let dbError = null;

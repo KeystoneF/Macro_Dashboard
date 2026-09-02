@@ -39,7 +39,7 @@ async function main() {
 
   const existing = await users.byEmail(email);
   if (existing) {
-    await pool.query('UPDATE users SET name = ?, password_hash = ? WHERE id = ?', [
+    await pool.query('UPDATE users SET name = $1, password_hash = $2 WHERE id = $3', [
       name,
       await bcrypt.hash(password, 12),
       existing.id,

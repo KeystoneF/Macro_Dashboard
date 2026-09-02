@@ -26,9 +26,9 @@ function redact(text) {
   );
 }
 
-// mysql2 raises connection failures with an empty message and the reason only
-// in .code, so reading .message alone answers with {"error":""} and an analyst
-// is told nothing at all while the database is down.
+// A driver can raise a connection failure with an empty message and the reason
+// only in .code, so reading .message alone answers with {"error":""} and an
+// analyst is told nothing at all while the database is down.
 function describe(err) {
   if (!err) return 'unknown error';
   const message = typeof err.message === 'string' ? err.message.trim() : '';

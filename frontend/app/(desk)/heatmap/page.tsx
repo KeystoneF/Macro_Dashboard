@@ -616,7 +616,7 @@ const label = (key: string) => UNIVERSES.find(([k]) => k === key)?.[1] ?? key;
 // and the holdings they carry that are not constituents are named here rather
 // than left as a silent difference in the count.
 function sourceNote(universe: string, data: Heatmap) {
-  if (universe !== 'tsx') return 'FMP only.';
+  if (universe !== 'tsx') return 'FMP.';
   const skipped = data.skipped.length ? ` LEFT OUT: ${data.skipped.join(', ')}.` : '';
   return `Membership from the XIC and ZCN index funds, sectors as FMP groups them.${skipped}`;
 }

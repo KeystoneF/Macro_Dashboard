@@ -26,26 +26,26 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-echo [2/5] MySQL container started.
+echo [2/5] Postgres container started.
 
-REM MySQL accepts the container start well before it accepts connections.
+REM Postgres accepts the container start well before it accepts connections.
 REM docker-compose.yml defines a healthcheck, so poll that rather than guessing.
 set /a tries=0
 :wait
-docker inspect -f "{{.State.Health.Status}}" macrodesk-mysql 2>nul | findstr /i "healthy" >nul
+docker inspect -f "{{.State.Health.Status}}" macrodesk-postgres 2>nul | findstr /i "healthy" >nul
 if not errorlevel 1 goto ready
 set /a tries+=1
 if !tries! GEQ 40 (
-  echo [X] MySQL never reported healthy. Check: docker compose logs db
+  echo [X] Postgres never reported healthy. Check: docker compose logs db
   pause
   exit /b 1
 )
-if !tries!==1 echo       waiting for MySQL to accept connections...
+if !tries!==1 echo       waiting for Postgres to accept connections...
 timeout /t 2 /nobreak >nul
 goto wait
 
 :ready
-echo [3/5] MySQL ready.
+echo [3/5] Postgres ready.
 
 REM Schema before the API starts, or sign-in fails against a missing users table
 pushd "%~dp0backend"
@@ -71,7 +71,7 @@ echo.
 echo Running:
 echo   web    http://localhost:3000
 echo   api    http://localhost:4000/api/health
-echo   mysql  localhost:3306
+echo   db     localhost:5433
 echo.
 echo Close the two server windows to stop, or run stop.bat
 echo.

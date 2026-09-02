@@ -15,7 +15,7 @@ const QUOTE_CACHE_MS = 5_000;
 const CACHE_MS = 60_000;
 const cache = new Map();
 
-// prices are passthrough, not stored. only official stats go to mysql.
+// prices are passthrough, not stored. only official stats go to postgres.
 async function fmp(path, ttl = CACHE_MS) {
   const key = process.env.FMP_API_KEY;
   if (!key) throw new Error('FMP_API_KEY missing');

@@ -364,7 +364,7 @@ export default function SectorTrackerPage() {
           <div>
             <h2 style={T.h2}>Forward P/E ratios</h2>
             <p style={{ ...T.desc, marginBottom: 0 }}>
-              Yardeni Research, redrawn from LSEG Datastream on each load
+              Yardeni Research, draws from LSEG Datastream
             </p>
           </div>
         </div>
