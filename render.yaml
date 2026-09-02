@@ -60,7 +60,9 @@ services:
     runtime: node
     rootDir: frontend
     plan: starter
-    buildCommand: npm ci && npm run build
+    # --include=dev because NODE_ENV=production makes npm skip devDependencies,
+    # and typescript and the @types packages live there: next build needs them
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     envVars:
       # the proxy target. rewrites are baked into the build, so this has to be
