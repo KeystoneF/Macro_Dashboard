@@ -1,0 +1,21 @@
+services:
+  db:
+    image: mysql:8
+    container_name: macrodesk-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: devroot
+      MYSQL_DATABASE: macrodesk
+    ports:
+      # loopback only. Bare "3306:3306" publishes the database on every
+      # interface, and the password below is the one in .env.example.
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - dbdata:/var/lib/mysql
+    # health check so we can tell "mysql is booting" apart from "mysql is broken"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pdevroot"]
+      interval: 5s
+      retries: 12
+
+volumes:
+  dbdata:

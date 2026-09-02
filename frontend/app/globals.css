@@ -1,0 +1,44 @@
+/* Mirrors frontend/app/theme.ts. The app is dark only, so there is no
+   prefers-color-scheme switch to keep in sync. */
+
+html {
+  height: 100%;
+}
+
+html,
+body {
+  max-width: 100vw;
+}
+
+/* Not overflow-x: hidden. That hid the symptom by clipping whatever ran wide,
+   so a table on a half-width window lost its last columns with no scrollbar to
+   say so. Panels that cannot shrink scroll inside themselves instead. */
+
+body {
+  min-height: 100%;
+  background: #1b2530;
+  color: #e8edf1;
+  font-family: Cambria, 'Hoefler Text', Constantia, Georgia, serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* One rule that genuinely needs a media query: the page gutter. Twenty-eight
+   pixels a side is a meaningful share of a half-width window. The sidebar
+   collapses itself in Sidebar.tsx rather than being overridden from here. */
+@media (max-width: 900px) {
+  .desk-page {
+    padding: 18px 14px 30px !important;
+  }
+}

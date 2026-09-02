@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>KeyStone MacroDesk: News &amp; Commentary</title>
+<style>
+    :root{
+    --bg:#1B2530; --panel:#2E4151; --panel2:#384C5E; --line:#475C6F;
+    --ink:#E8EDF1; --ink-dim:#93A6B5;
+    --accent:#1AA897; --accent-lt:#5FD8C6;
+    --ca:#E8825E; --us:#5BC0B0;
+    --good:#4FB79E; --bad:#E0645F;
+    --serif:"Times New Roman",Times,serif;
+    --mono:Cambria,"Hoefler Text",Constantia,Georgia,serif;
+    --sans:Cambria,"Hoefler Text",Constantia,Georgia,serif;
+  }
+    *{box-sizing:border-box}
+  table, .val, .value, .num, .src, .impact{font-variant-numeric:tabular-nums;}
+  .na{color:var(--ink-dim);opacity:.7;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);}
+  .wrap{max-width:1360px;margin:0 auto;padding:28px 32px 60px;}
+  .topbar{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:22px;}
+  .brand{font-family:var(--serif);font-size:30px;font-weight:700;font-style:italic;letter-spacing:.2px;}
+  .brand span{
+    background:linear-gradient(150deg,#5FD8C6,#1AA897 60%,#12897B);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    -webkit-text-stroke:.4px rgba(95,216,198,.26);
+  }
+  .subtag{color:var(--ink-dim);font-size:12px;letter-spacing:.2px;margin-top:4px;font-family:var(--mono);}
+
+  .toolbar{display:flex;gap:10px;align-items:flex-end;background:var(--panel);border:1px solid var(--line);padding:14px 16px;border-radius:12px;margin-bottom:20px;flex-wrap:wrap;}
+  .field{display:flex;flex-direction:column;gap:5px;}
+  .field label{font-family:var(--mono);font-size:9.5px;letter-spacing:.2px;color:var(--ink-dim);}
+  .field input,.field select{background:var(--panel2);border:1px solid var(--line);color:var(--ink);font-family:var(--mono);font-size:12.5px;padding:8px 10px;border-radius:8px;min-width:190px;}
+  .srcFilters{display:flex;gap:6px;}
+  .sf{font-family:var(--mono);font-size:10.5px;padding:8px 12px;border:1px solid var(--line);color:var(--ink-dim);cursor:pointer;border-radius:999px;}
+  .sf.active{color:var(--bg);background:var(--accent);border-color:var(--accent);}
+  .spacer{flex:1;}
+
+  .grid{display:grid;grid-template-columns:2.1fr 1fr;gap:20px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:20px;}
+  .card h2{font-family:var(--serif);font-size:16px;margin:0 0 4px;}
+  .card .desc{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-bottom:14px;}
+
+  .feedItem{display:flex;gap:14px;padding:13px 0;border-top:1px solid var(--panel2);}
+  .feedItem:first-of-type{border-top:none;padding-top:2px;}
+  .timeCol{width:56px;flex-shrink:0;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);padding-top:2px;}
+  .feedItem h3{margin:0 0 5px;font-size:13.5px;font-weight:600;line-height:1.35;}
+  .feedItem p{margin:0 0 6px;font-size:12px;color:var(--ink-dim);line-height:1.5;}
+  .badge{font-family:var(--mono);font-size:9px;letter-spacing:.2px;padding:2px 6px;border-radius:999px;border:1px solid var(--line);color:var(--ink-dim);margin-right:6px;}
+  .badge.cnbc{border-color:var(--us);color:var(--us);}
+  .badge.fmp{border-color:var(--accent);color:var(--accent-lt);}
+  .badge.statcan{border-color:var(--ca);color:var(--ca);}
+  .badge.boc{border-color:var(--ca);color:var(--ca);}
+  .tagRow{margin-top:2px;}
+  .relTag{font-family:var(--mono);font-size:9px;color:var(--ink-dim);border:1px dashed var(--line);padding:1px 6px;border-radius:999px;margin-right:4px;}
+
+  .topicList{display:flex;flex-direction:column;gap:0;}
+  .topicRow{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--panel2);font-family:var(--mono);font-size:11.5px;}
+  .topicRow:last-child{border-bottom:none;}
+  .topicRow .n{color:var(--ink-dim);}
+  .topicRow .c{color:var(--accent-lt);}
+
+  .sourceHealth{display:flex;flex-direction:column;gap:8px;}
+  .shRow{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;}
+  .dotStatus{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:8px;}
+  .dotStatus.ok{background:var(--good);}
+  /* accent is teal like .ok now, so stale takes the warm end of the palette to stay readable as a warning */
+  .dotStatus.stale{background:var(--ca);}
+
+  footer{margin-top:6px;padding-top:14px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);display:flex;justify-content:space-between;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div>
+      <div class="brand">KeyStone <span>News &amp; Commentary</span></div>
+      <div class="subtag">Aggregated feed: CNBC · FMP · StatCan · Bank of Canada</div>
+    </div>
+</div>
+
+  <div class="toolbar">
+    <div class="field">
+      <label>Search</label>
+      <input type="text" placeholder="keyword, ticker, topic...">
+    </div>
+    <div class="srcFilters">
+      <div class="sf active">All</div>
+      <div class="sf">CNBC</div>
+      <div class="sf">FMP</div>
+      <div class="sf">StatCan</div>
+      <div class="sf">BoC</div>
+    </div>
+    <div class="field">
+      <label>Country focus</label>
+      <select><option>Both</option><option>Canada</option><option>United States</option></select>
+    </div>
+    <div class="spacer"></div>
+    <div class="field">
+      <label>Window</label>
+      <select><option>Last 24h</option><option>Last 7d</option><option>Last 30d</option></select>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>Raw Feed: Unfiltered, Reverse Chronological</h2>
+        <div class="desc">This is the full stream underneath the AI-ranked daily brief</div>
+
+        <div class="feedItem">
+          <div class="timeCol">n/a</div>
+          <div>
+            <span class="badge cnbc">CNBC</span>
+            <h3>Placeholder headline: general macro/markets story</h3>
+            <p>Placeholder one-line summary of the article body, pulled from feed excerpt.</p>
+          </div>
+        </div>
+        <div class="feedItem">
+          <div class="timeCol">n/a</div>
+          <div>
+            <span class="badge fmp">FMP News</span>
+            <h3>Placeholder headline: aggregated market news item</h3>
+            <p>Placeholder summary text.</p>
+            <div class="tagRow"><span class="relTag">watchlist match</span></div>
+          </div>
+        </div>
+        <div class="feedItem">
+          <div class="timeCol">n/a</div>
+          <div>
+            <span class="badge statcan">StatCan</span>
+            <h3>Placeholder headline: data release notice</h3>
+            <p>Placeholder summary text, pulled from RSS item description.</p>
+          </div>
+        </div>
+        <div class="feedItem">
+          <div class="timeCol">n/a</div>
+          <div>
+            <span class="badge boc">BoC</span>
+            <h3>Placeholder headline: speech / commentary release</h3>
+            <p>Placeholder summary text.</p>
+          </div>
+        </div>
+        <div class="feedItem">
+          <div class="timeCol">n/a</div>
+          <div>
+            <span class="badge cnbc">CNBC</span>
+            <h3>Placeholder headline: sector-specific commentary</h3>
+            <p>Placeholder summary text.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Trending Topics</h2>
+        <div class="desc">Frequency across sources, current window</div>
+        <div class="topicList">
+          <div class="topicRow"><span class="n">Placeholder topic A</span><span class="c">n/a</span></div>
+          <div class="topicRow"><span class="n">Placeholder topic B</span><span class="c">n/a</span></div>
+          <div class="topicRow"><span class="n">Placeholder topic C</span><span class="c">n/a</span></div>
+          <div class="topicRow"><span class="n">Placeholder topic D</span><span class="c">n/a</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Feed Health</h2>
+        <div class="desc">Last successful pull per source</div>
+        <div class="sourceHealth">
+          <div class="shRow"><span><span class="dotStatus ok"></span>CNBC RSS</span><span>n/a</span></div>
+          <div class="shRow"><span><span class="dotStatus ok"></span>FMP general news</span><span>n/a</span></div>
+          <div class="shRow"><span><span class="dotStatus ok"></span>StatCan RSS</span><span>n/a</span></div>
+          <div class="shRow"><span><span class="dotStatus stale"></span>Bank of Canada RSS</span><span>n/a</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>KeyStone MacroDesk: Series Explorer</title>
+<style>
+    :root{
+    --bg:#1B2530; --panel:#2E4151; --panel2:#384C5E; --line:#475C6F;
+    --ink:#E8EDF1; --ink-dim:#93A6B5;
+    --accent:#1AA897; --accent-lt:#5FD8C6;
+    --ca:#E8825E; --us:#5BC0B0;
+    --good:#4FB79E; --bad:#E0645F;
+    --serif:"Times New Roman",Times,serif;
+    --mono:Cambria,"Hoefler Text",Constantia,Georgia,serif;
+    --sans:Cambria,"Hoefler Text",Constantia,Georgia,serif;
+  }
+    *{box-sizing:border-box}
+  table, .val, .value, .num, .src, .impact{font-variant-numeric:tabular-nums;}
+  .na{color:var(--ink-dim);opacity:.7;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);}
+  .wrap{max-width:1360px;margin:0 auto;padding:28px 32px 60px;}
+  .topbar{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:22px;}
+  .brand{font-family:var(--serif);font-size:30px;font-weight:700;font-style:italic;letter-spacing:.2px;}
+  .brand span{
+    background:linear-gradient(150deg,#5FD8C6,#1AA897 60%,#12897B);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    -webkit-text-stroke:.4px rgba(95,216,198,.26);
+  }
+  .subtag{color:var(--ink-dim);font-size:12px;letter-spacing:.2px;margin-top:4px;font-family:var(--mono);}
+
+  .toolbar{display:flex;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:18px;flex-wrap:wrap;}
+  .field{display:flex;flex-direction:column;gap:5px;}
+  .field label{font-family:var(--mono);font-size:9.5px;letter-spacing:.2px;color:var(--ink-dim);}
+  .field select, .field input{background:var(--panel2);border:1px solid var(--line);color:var(--ink);font-family:var(--mono);font-size:12.5px;padding:8px 10px;border-radius:8px;min-width:210px;}
+  .search-wrap{position:relative;}
+  .search-wrap input{min-width:260px;}
+  .add-series-btn{align-self:flex-end;background:var(--accent);color:var(--bg);border:none;font-family:var(--mono);font-size:11px;letter-spacing:.2px;padding:9px 16px;border-radius:999px;cursor:pointer;}
+  .spacer{flex:1;}
+  .periodPill{display:flex;gap:4px;align-self:flex-end;}
+  .pp{font-family:var(--mono);font-size:11px;padding:8px 12px;border:1px solid var(--line);color:var(--ink-dim);cursor:pointer;border-radius:999px;}
+  .pp.active{background:var(--accent);color:var(--bg);border-color:var(--accent);}
+  .iconbtn{align-self:flex-end;border:1px solid var(--line);background:transparent;color:var(--ink-dim);font-family:var(--mono);font-size:11px;padding:9px 14px;cursor:pointer;letter-spacing:.2px;border-radius:999px;}
+
+  .activeSeries{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+  .schip{font-family:var(--mono);font-size:11px;padding:6px 10px;border-radius:999px;display:flex;align-items:center;gap:8px;}
+  .schip .dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  .schip.s1{background:rgba(91,192,176,.14);color:var(--us);border:1px solid rgba(91,192,176,.4);}
+  .schip.s1 .dot{background:var(--us);}
+  .schip.s2{background:rgba(232,130,94,.14);color:var(--ca);border:1px solid rgba(232,130,94,.4);}
+  .schip.s2 .dot{background:var(--ca);}
+  .schip.s3{background:rgba(26,168,151,.14);color:var(--accent-lt);border:1px solid rgba(26,168,151,.4);}
+  .schip.s3 .dot{background:var(--accent);}
+  .schip .x{opacity:.6;cursor:pointer;}
+
+  .chartCard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px;margin-bottom:20px;}
+  .chartHead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+  .chartHead h2{font-family:var(--serif);font-size:17px;margin:0 0 4px;}
+  .chartHead .desc{font-family:var(--mono);font-size:11px;color:var(--ink-dim);}
+  .chartTypeToggle{display:flex;gap:4px;}
+  .ctt{font-family:var(--mono);font-size:10px;padding:6px 10px;border:1px solid var(--line);color:var(--ink-dim);cursor:pointer;border-radius:999px;}
+  .ctt.active{color:var(--accent-lt);border-color:var(--accent);}
+
+  svg{width:100%;height:340px;display:block;}
+  .axis-label{font-family:var(--mono);font-size:9px;fill:var(--ink-dim);}
+  .gridline{stroke:var(--panel2);stroke-width:1;}
+  .legend{display:flex;gap:18px;margin-top:10px;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);}
+  .legend .dot{width:8px;height:8px;display:inline-block;border-radius:50%;margin-right:6px;}
+
+  .exportRow{display:flex;gap:10px;margin-top:14px;}
+  .expBtn{font-family:var(--mono);font-size:10.5px;letter-spacing:.2px;padding:8px 14px;border:1px solid var(--line);background:transparent;color:var(--ink-dim);cursor:pointer;border-radius:999px;}
+  .expBtn:hover{color:var(--accent-lt);border-color:var(--accent);}
+
+  .bottomGrid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;}
+  .card h3{font-family:var(--serif);font-size:14.5px;margin:0 0 12px;}
+  .datasetTable{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px;}
+  .datasetTable th{text-align:left;color:var(--ink-dim);font-size:9.5px;letter-spacing:.2px;border-bottom:1px solid var(--line);padding-bottom:6px;}
+  .datasetTable td{padding:7px 4px;border-bottom:1px solid var(--panel2);}
+  .newTag{font-size:8.5px;background:var(--accent);color:var(--bg);padding:1px 5px;border-radius:999px;margin-left:6px;}
+
+  footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);display:flex;justify-content:space-between;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div>
+      <div class="brand">KeyStone <span>Series Explorer</span></div>
+      <div class="subtag">Data Aggregation &amp; Time Series, multi-source</div>
+    </div>
+</div>
+
+  <div class="toolbar">
+    <div class="field search-wrap">
+      <label>Search dataset</label>
+      <input type="text" placeholder="e.g. GDP, CPI, unemployment...">
+    </div>
+    <div class="field">
+      <label>Country</label>
+      <select><option>Canada</option><option>United States</option><option>Both</option></select>
+    </div>
+    <div class="field">
+      <label>Dataset</label>
+      <select><option>Real GDP (monthly)</option></select>
+    </div>
+    <div class="field">
+      <label>Frequency</label>
+      <select><option>Monthly</option><option>Quarterly</option><option>Weekly</option></select>
+    </div>
+    <button class="add-series-btn">+ Add to chart</button>
+    <div class="spacer"></div>
+    <div class="periodPill">
+      <div class="pp">1Y</div><div class="pp">5Y</div><div class="pp active">10Y</div><div class="pp">Max</div>
+    </div>
+  </div>
+
+  <div class="activeSeries">
+    <div class="schip s1"><span class="dot"></span>US Real GDP (FRED · GDPC1) <span class="x">✕</span></div>
+    <div class="schip s2"><span class="dot"></span>CA Real GDP (StatCan · 36-10-0104) <span class="x">✕</span></div>
+    <div class="schip s3"><span class="dot"></span>+ add another series</div>
+  </div>
+
+  <div class="chartCard">
+    <div class="chartHead">
+      <div>
+        <h2>Real GDP: Canada vs. United States</h2>
+        <div class="desc">Indexed / dual-axis toggle available · placeholder series</div>
+      </div>
+      <div class="chartTypeToggle">
+        <div class="ctt active">Line</div>
+        <div class="ctt">Column</div>
+        <div class="ctt">Pie</div>
+      </div>
+    </div>
+
+    <svg viewBox="0 0 900 340">
+      <line class="gridline" x1="40" y1="20" x2="40" y2="290"/>
+      <line class="gridline" x1="40" y1="290" x2="880" y2="290"/>
+      <line class="gridline" x1="40" y1="230" x2="880" y2="230"/>
+      <line class="gridline" x1="40" y1="170" x2="880" y2="170"/>
+      <line class="gridline" x1="40" y1="110" x2="880" y2="110"/>
+      <line class="gridline" x1="40" y1="50" x2="880" y2="50"/>
+
+      <polyline points="60,240 140,230 220,225 300,200 380,205 460,180 540,175 620,150 700,140 780,120 860,100"
+        fill="none" stroke="#5BC0B0" stroke-width="2.5"/>
+      <polyline points="60,260 140,255 220,250 300,240 380,238 460,225 540,222 620,205 700,198 780,185 860,170"
+        fill="none" stroke="#E8825E" stroke-width="2.5"/>
+
+      <text x="20" y="294" class="axis-label">0</text>
+      <text x="10" y="234" class="axis-label">25</text>
+      <text x="10" y="174" class="axis-label">50</text>
+      <text x="10" y="114" class="axis-label">75</text>
+      <text x="10" y="54" class="axis-label">100</text>
+      <text x="55" y="308" class="axis-label">2016</text>
+      <text x="300" y="308" class="axis-label">2019</text>
+      <text x="540" y="308" class="axis-label">2022</text>
+      <text x="820" y="308" class="axis-label">2026</text>
+    </svg>
+    <div class="legend">
+      <span><span class="dot" style="background:#5BC0B0"></span>US Real GDP</span>
+      <span><span class="dot" style="background:#E8825E"></span>CA Real GDP</span>
+    </div>
+
+    <div class="exportRow">
+      <button class="expBtn">Download CSV</button>
+      <button class="expBtn">Download PNG</button>
+      <button class="expBtn">Copy chart link</button>
+    </div>
+  </div>
+
+  <div class="bottomGrid">
+    <div class="card">
+      <h3>Available Datasets (dynamic, appends on new release)</h3>
+      <table class="datasetTable">
+        <tr><th>Series</th><th>Source</th><th>Freq.</th><th>Updated</th></tr>
+        <tr><td>Real GDP<span class="newTag">NEW</span></td><td>StatCan</td><td>Monthly</td><td>n/a</td></tr>
+        <tr><td>CPI all-items</td><td>StatCan</td><td>Monthly</td><td>n/a</td></tr>
+        <tr><td>Real GDP</td><td>FRED</td><td>Quarterly</td><td>n/a</td></tr>
+        <tr><td>Nonfarm payrolls</td><td>FRED</td><td>Monthly</td><td>n/a</td></tr>
+        <tr><td>Overnight rate target</td><td>Bank of Canada</td><td>As set</td><td>n/a</td></tr>
+        <tr><td>...</td><td>...</td><td>...</td><td>...</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Series Detail</h3>
+      <table class="datasetTable">
+        <tr><th>Field</th><th>Value</th></tr>
+        <tr><td>Source table ID</td><td>placeholder</td></tr>
+        <tr><td>Units</td><td>placeholder</td></tr>
+        <tr><td>Seasonal adjustment</td><td>placeholder</td></tr>
+        <tr><td>Last observation</td><td>placeholder</td></tr>
+        <tr><td>Next scheduled release</td><td>placeholder</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</body>
+</html>

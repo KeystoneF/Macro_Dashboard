@@ -1,0 +1,7 @@
+# Normalise line endings so a Windows checkout and a Linux one do not show every
+# file as modified. Without this, git warns on every add from this machine.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.ico binary

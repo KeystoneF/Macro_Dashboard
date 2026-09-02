@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>KeyStone MacroDesk</title>
+<style>
+    :root{
+    --bg:#1B2530; --panel:#2E4151; --panel2:#384C5E; --line:#475C6F;
+    --ink:#E8EDF1; --ink-dim:#93A6B5;
+    --accent:#1AA897; --accent-lt:#5FD8C6;
+    --ca:#E8825E; --us:#5BC0B0;
+    --good:#4FB79E; --bad:#E0645F;
+    --serif:"Times New Roman",Times,serif;
+    --mono:Cambria,"Hoefler Text",Constantia,Georgia,serif;
+    --sans:Cambria,"Hoefler Text",Constantia,Georgia,serif;
+  }
+    *{box-sizing:border-box}
+  table, .val, .value, .num, .src, .impact{font-variant-numeric:tabular-nums;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans);}
+  .shell{display:flex;height:100vh;}
+
+  .sidebar{
+    width:var(--sb);flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;position:relative;
+    transition:width .22s ease;
+  }
+  body.collapsed{--sb:66px;}
+
+  .sb-head{padding:20px 18px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;}
+  .mark{width:26px;height:25px;color:var(--accent);flex-shrink:0;}
+  .sb-titles{min-width:0;overflow:hidden;}
+  .sb-brand{font-family:var(--serif);font-size:18px;font-weight:700;font-style:italic;line-height:1.15;white-space:nowrap;}
+  .sb-brand span{
+    display:block;font-size:14px;
+    background:linear-gradient(150deg,#5FD8C6,#1AA897 60%,#12897B);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .sb-sub{font-family:var(--mono);font-size:9px;letter-spacing:.2px;color:var(--ink-dim);margin-top:5px;white-space:nowrap;}
+
+  /* collapse control sits on the divider so it reads as a panel handle */
+  .toggle{
+    position:absolute;top:26px;right:-11px;z-index:5;
+    width:22px;height:22px;border-radius:50%;
+    background:var(--panel2);border:1px solid var(--line);color:var(--ink-dim);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;
+    transition:color .15s,border-color .15s;
+  }
+  .toggle:hover{color:var(--accent);border-color:var(--accent);}
+  .toggle svg{width:10px;height:10px;transition:transform .22s ease;}
+  body.collapsed .toggle svg{transform:rotate(180deg);}
+
+  .sb-group-label{
+    font-family:var(--mono);font-size:9px;letter-spacing:.2px;
+    color:var(--ink-dim);padding:16px 20px 6px;white-space:nowrap;
+  }
+  nav{flex:1;overflow-y:auto;overflow-x:hidden;padding-bottom:12px;}
+  .tab{
+    display:flex;align-items:center;gap:12px;padding:10px 20px;cursor:pointer;
+    border-left:2px solid transparent;font-size:13px;color:var(--ink-dim);white-space:nowrap;
+  }
+  .tab .num{font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);width:16px;flex-shrink:0;}
+  .tab .lbl{overflow:hidden;}
+  .tab:hover{background:var(--panel2);color:var(--ink);}
+  .tab.active{background:var(--panel2);color:var(--ink);border-left-color:var(--accent);}
+  .tab.active .num{color:var(--accent);}
+
+  .sb-foot{padding:13px 20px;border-top:1px solid var(--line);font-family:var(--mono);font-size:9px;color:var(--ink-dim);line-height:1.7;}
+  .sb-foot b{color:var(--accent);font-weight:500;}
+  .signout{
+    display:block;color:var(--accent);text-decoration:none;letter-spacing:.2px;
+  }
+  .signout:hover{text-decoration:underline;}
+
+  /* collapsed: keep the rail usable, numbers stay as the affordance */
+  body.collapsed .sb-titles,
+  body.collapsed .sb-group-label,
+  body.collapsed .tab .lbl,
+  body.collapsed .sb-foot{display:none;}
+  body.collapsed .sb-head{justify-content:center;padding:20px 0 16px;}
+  body.collapsed .tab{justify-content:center;padding:11px 0;gap:0;}
+  body.collapsed .tab .num{width:auto;}
+  body.collapsed nav{padding-top:8px;}
+
+  .main{flex:1;display:flex;flex-direction:column;min-width:0;}
+
+  .frameWrap{flex:1;min-height:0;}
+  iframe{width:100%;height:100%;border:none;display:block;background:var(--bg);}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="sidebar">
+    <button class="toggle" id="toggle" title="Collapse panel" aria-label="Collapse panel">
+      <svg viewBox="0 0 10 10"><path d="M6.5 1 L2.5 5 L6.5 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+
+    <div class="sb-head">
+      <svg class="mark" viewBox="0 0 160 155" xmlns="http://www.w3.org/2000/svg" aria-label="KeyStone"><path fill="currentColor" fill-rule="evenodd" d="M15.0 154.3C15.0 152.7 57.3 90.1 58.1 90.6C58.5 90.8 63.1 97.2 68.1 104.8C73.2 112.3 82.7 126.2 89.2 135.7C95.7 145.1 101.0 153.3 101.0 153.9C101.0 154.7 88.2 155.0 58.0 155.0C34.3 155.0 15.0 154.7 15.0 154.3ZM114.8 149.1C112.4 145.8 106.5 137.2 101.5 129.9C96.5 122.5 86.8 108.0 79.7 97.6C71.2 84.9 67.1 78.1 67.5 77.0C67.8 76.0 70.4 71.9 73.3 67.8C76.2 63.8 80.5 57.5 82.9 53.8C85.4 50.1 87.7 47.3 88.1 47.6C88.8 48.0 94.9 56.9 131.5 111.5C145.1 131.8 157.1 149.6 158.1 150.9C159.2 152.2 159.7 153.6 159.4 154.1C159.1 154.6 149.9 155.0 139.0 155.0L119.0 155.0L114.8 149.1ZM-0.0 116.3L-0.0 80.1L26.2 40.1L52.5 0.0L77.2 0.0L102.0 0.0L98.2 5.8C94.1 12.1 42.7 89.0 39.9 93.0C39.0 94.4 30.0 107.9 20.0 123.0C10.0 138.1 1.4 150.9 0.9 151.4C0.4 152.0 -0.0 137.5 -0.0 116.3ZM106.9 49.8C101.3 42.0 96.7 35.1 96.7 34.5C96.7 33.8 101.3 25.8 107.0 16.6L117.3 -0.0L138.7 -0.0C150.4 -0.0 160.0 0.2 160.0 0.5C160.0 0.8 156.5 6.3 152.2 12.8C147.9 19.2 138.6 33.4 131.5 44.2C124.3 55.1 118.2 64.0 117.8 64.0C117.5 64.0 112.5 57.6 106.9 49.8ZM-0.0 27.6L0.0 0.0L19.1 0.0L38.1 0.0L36.2 2.8C35.2 4.3 27.4 15.6 19.0 28.0C10.5 40.4 2.8 51.6 1.8 52.9C0.0 55.2 -0.0 54.6 -0.0 27.6Z"/></svg>
+      <div class="sb-titles">
+        <div class="sb-brand">KeyStone <span>MacroDesk</span></div>
+      </div>
+    </div>
+
+    <nav id="nav">
+      <div class="sb-group-label">Daily Workflow</div>
+      <div class="tab active" data-src="1-daily-brief.html" data-label="Daily / Weekly / Monthly Brief"><span class="num">01</span><span class="lbl">Daily Brief</span></div>
+      <div class="tab" data-src="6-news-aggregator.html" data-label="News &amp; Commentary Aggregator"><span class="num">02</span><span class="lbl">News &amp; Commentary</span></div>
+
+      <div class="sb-group-label">Data &amp; Charting</div>
+      <div class="tab" data-src="2-time-series-explorer.html" data-label="Time Series Explorer"><span class="num">03</span><span class="lbl">Series Explorer</span></div>
+      <div class="tab" data-src="3-yield-curve.html" data-label="Yield Curve"><span class="num">04</span><span class="lbl">Yield Curve</span></div>
+      <div class="tab" data-src="7-fx-commodities.html" data-label="FX &amp; Commodities Board"><span class="num">05</span><span class="lbl">FX &amp; Commodities</span></div>
+      <div class="tab" data-src="8-international-oecd.html" data-label="International / OECD Comparison"><span class="num">06</span><span class="lbl">International</span></div>
+
+      <div class="sb-group-label">Coverage</div>
+      <div class="tab" data-src="4-sector-tracker.html" data-label="Sector Tracker &amp; Valuation"><span class="num">07</span><span class="lbl">Sector &amp; Valuation</span></div>
+      <div class="tab" data-src="5-watchlist-news.html" data-label="Watchlist, Earnings &amp; Calendar"><span class="num">08</span><span class="lbl">Watchlist &amp; Calendar</span></div>
+      <div class="tab" data-src="9-heatmap.html" data-label="Market-Cap Return Heatmap"><span class="num">09</span><span class="lbl">Heatmap</span></div>
+    </nav>
+
+    <div class="sb-foot">
+      <a class="signout" href="login.html">Sign out</a>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="frameWrap">
+      <iframe id="frame" src="1-daily-brief.html" title="Module"></iframe>
+    </div>
+  </div>
+</div>
+
+<script>
+  const tabs = document.querySelectorAll('.tab');
+  const frame = document.getElementById('frame');
+
+  tabs.forEach(t => {
+    t.addEventListener('click', () => {
+      tabs.forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      frame.src = t.dataset.src;
+    });
+    // collapsed rail has no labels, so the title attribute carries the name
+    t.title = t.dataset.label;
+  });
+
+  const toggle = document.getElementById('toggle');
+  toggle.addEventListener('click', () => {
+    const collapsed = document.body.classList.toggle('collapsed');
+    toggle.title = collapsed ? 'Expand panel' : 'Collapse panel';
+  });
+</script>
+</body>
+</html>

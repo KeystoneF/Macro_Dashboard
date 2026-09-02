@@ -1,0 +1,25 @@
+{
+  "name": "macro-desk-backend",
+  "version": "0.1.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "migrate": "node sql/migrate.js",
+    "seed-user": "node sql/seed-user.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "fast-xml-parser": "^5.11.1",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.11.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}
