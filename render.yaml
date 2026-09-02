@@ -2,6 +2,17 @@
 # every frontend call is a relative /api/... path that next.config.ts proxies to
 # API_ORIGIN server side, so the session cookie stays same origin and CORS never
 # enters into it.
+#
+# The two services name each other, so their urls are entered at apply time
+# rather than looked up with fromService: each service would otherwise have to
+# exist before the other could be created. Render prompts for every sync: false
+# value, and both follow from the service names below:
+#
+#   API_ORIGIN       https://macrodesk-api.onrender.com
+#   ALLOWED_ORIGINS  https://macrodesk-web.onrender.com
+#
+# If Render appends a suffix because a name is taken, correct the value on the
+# service afterwards and redeploy.
 
 databases:
   - name: macrodesk-db
@@ -38,10 +49,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: ALLOWED_ORIGINS
-        fromService:
-          name: macrodesk-web
-          type: web
-          property: host
+        sync: false
       - key: FMP_API_KEY
         sync: false
       - key: FRED_API_KEY
@@ -55,14 +63,10 @@ services:
     buildCommand: npm ci && npm run build
     startCommand: npm start
     envVars:
-      # the api's hostname, which next.config.ts turns into the proxy target.
-      # It has to be here rather than filled in later: rewrites are baked into
-      # the build, so a first build without it deploys a desk that reaches nothing.
-      - key: API_HOST
-        fromService:
-          name: macrodesk-api
-          type: web
-          property: host
+      # the proxy target. rewrites are baked into the build, so this has to be
+      # right before the first build rather than filled in after it.
+      - key: API_ORIGIN
+        sync: false
       - key: NODE_VERSION
         value: "22"
       - key: NODE_ENV
