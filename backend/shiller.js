@@ -10,7 +10,7 @@ const PAGE = 'https://shillerdata.com/';
 const SHILLER = {
   id: 'shiller',
   label: 'Shiller PE (CAPE)',
-  source: 'Robert J. Shiller, Yale',
+  source: 'Shillerdata',
   page: PAGE,
 };
 

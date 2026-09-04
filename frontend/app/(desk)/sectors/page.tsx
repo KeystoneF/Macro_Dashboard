@@ -383,10 +383,7 @@ export default function SectorTrackerPage() {
           <div style={T.cardHead}>
             <div>
               <h2 style={T.h2}>Shiller PE</h2>
-              <p style={{ ...T.desc, marginBottom: 0 }}>
-                Cyclically adjusted, monthly average of daily closes. The dashed rule is the
-                all-time mean
-              </p>
+              <p style={{ ...T.desc, marginBottom: 0 }}>Cyclically adjusted</p>
             </div>
             <div style={T.readout}>
               {capeHover != null && cape ? (
