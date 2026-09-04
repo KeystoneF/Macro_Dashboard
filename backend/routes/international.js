@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { fail } = require('../redact');
+const { row } = require('../csv');
 
 const SDMX = 'https://sdmx.oecd.org/public/rest/data';
 
@@ -167,7 +168,7 @@ router.get('/csv', async (req, res) => {
     const rows = ['metric,country_code,country,period,value,units'];
     for (const a of areas) {
       for (const o of a.observations) {
-        rows.push([name, a.code, `"${a.name}"`, o.d, o.v, `"${m.units}"`].join(','));
+        rows.push(row([name, a.code, a.name, o.d, o.v, m.units]));
       }
     }
 

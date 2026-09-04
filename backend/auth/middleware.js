@@ -42,19 +42,24 @@ function currentUser(req) {
 // A valid signature is not the same as a live account. Without this check a
 // deleted analyst keeps working for the rest of the token's twelve hours,
 // because nothing between issuing it and its expiry ever looks at the database.
+// The row also carries the token version, which is how a signed-out token is
+// told from a current one.
 //
 // Cached for a minute so this costs one primary-key lookup per analyst per
-// minute rather than one per request.
+// minute rather than one per request. Signing out drops the entry rather than
+// waiting the minute out, so the token it just ended stops working now.
 const ACCOUNT_TTL_MS = 60_000;
 const accounts = new Map();
 
-async function accountLive(id) {
+async function accountFor(id) {
   const hit = accounts.get(id);
-  if (hit && Date.now() - hit.at < ACCOUNT_TTL_MS) return hit.live;
-  const live = Boolean(await users.byId(id));
-  accounts.set(id, { at: Date.now(), live });
-  return live;
+  if (hit && Date.now() - hit.at < ACCOUNT_TTL_MS) return hit.row;
+  const row = await users.byId(id);
+  accounts.set(id, { at: Date.now(), row });
+  return row;
 }
+
+const forget = (id) => accounts.delete(id);
 
 // Guards everything the desk fetches. /api/health stays open so the status page
 // can report a dead database without a session, and /api/auth/* has to be
@@ -64,8 +69,14 @@ async function requireAuth(req, res, next) {
   if (!user) return res.status(401).json({ error: 'not signed in' });
 
   try {
-    if (!(await accountLive(user.id))) {
-      return res.status(401).json({ error: 'account no longer active' });
+    const account = await accountFor(user.id);
+    if (!account) return res.status(401).json({ error: 'account no longer active' });
+
+    // A token issued before the analyst signed out carries the older version.
+    // No version at all is a provider that does not number its tokens, and
+    // revocation there belongs to whoever issued them.
+    if (user.ver != null && user.ver !== account.token_version) {
+      return res.status(401).json({ error: 'session ended' });
     }
   } catch (err) {
     // The database being unreachable is not evidence the account is gone. The
@@ -80,4 +91,4 @@ async function requireAuth(req, res, next) {
   next();
 }
 
-module.exports = { COOKIE, cookieOptions, currentUser, requireAuth };
+module.exports = { COOKIE, cookieOptions, currentUser, requireAuth, forget };

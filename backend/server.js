@@ -9,6 +9,44 @@ const { redact, describe } = require('./redact');
 
 const app = express();
 
+// The version banner names the framework to anyone scanning, and nothing reads it
+app.disable('x-powered-by');
+
+// req.ip is the proxy's own address unless express is told how many hops sit in
+// front, and the per-source sign-in limit is only as good as that address.
+// Trusting the header where nothing is in front of this process is worse than
+// not having it: a client would set its own address and walk past the limit. So
+// it follows the platform rather than defaulting on.
+//
+// Express reads a string as a list of proxy addresses and throws at boot on
+// anything that is not one, so the words are answered before the number is.
+function trustProxy() {
+  const set = process.env.TRUST_PROXY ?? (process.env.RENDER ? '1' : '0');
+  if (set === 'true') return true;
+  if (set === 'false') return false;
+  const hops = Number(set);
+  return Number.isFinite(hops) ? hops : set;
+}
+
+app.set('trust proxy', trustProxy());
+
+// Headers this API can set for itself. It answers JSON and one PNG and never a
+// document, so the policy is the restrictive one: the page-level policy belongs
+// to whatever serves the pages, and lives in frontend/next.config.ts.
+app.use((req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Referrer-Policy', 'no-referrer');
+  res.set('X-Frame-Options', 'DENY');
+  res.set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+  // Only where there is TLS to insist on. A browser ignores HSTS over plain
+  // http, and asserting it from a box reached over http would be a promise the
+  // next request cannot keep.
+  if (req.secure || req.get('x-forwarded-proto') === 'https') {
+    res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
 // An allowlist, not a reflector. Reflecting whatever Origin arrives while also
 // sending Access-Control-Allow-Credentials lets any site read this API with a
 // signed-in analyst's session. That is survivable today only because the cookie

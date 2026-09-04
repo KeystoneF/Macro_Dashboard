@@ -7,11 +7,20 @@ const url = process.env.DATABASE_URL;
 // A managed host refuses a plain connection, and Render's chain is not in the
 // container trust store. Local docker speaks no TLS at all, so this follows
 // DB_SSL and otherwise turns on only for a url pointing off this machine.
+//
+// DB_CA is the host's own certificate, which is what turns the connection from
+// encrypted into encrypted and checked: without one, nothing says the far end
+// is the database rather than whatever answered. Render publishes its chain.
+// An env var cannot hold a real newline, so an escaped one is read as one.
 function sslMode() {
   const set = process.env.DB_SSL;
   if (set === 'false') return false;
-  if (set === 'true') return { rejectUnauthorized: false };
-  return url && !/@(localhost|127\.0\.0\.1)[:/]/.test(url) ? { rejectUnauthorized: false } : false;
+
+  const ca = process.env.DB_CA ? process.env.DB_CA.replace(/\\n/g, '\n') : null;
+  const tls = ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false };
+
+  if (set === 'true') return tls;
+  return url && !/@(localhost|127\.0\.0\.1)[:/]/.test(url) ? tls : false;
 }
 
 // pooled from the start, connection-per-request bit us on the last project

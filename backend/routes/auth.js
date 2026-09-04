@@ -2,44 +2,38 @@ const express = require('express');
 const router = express.Router();
 const users = require('../auth/users');
 const { issue, ttlSeconds, providerName, canIssue } = require('../auth/verify');
-const { COOKIE, cookieOptions, currentUser } = require('../auth/middleware');
+const { COOKIE, cookieOptions, currentUser, forget } = require('../auth/middleware');
 const { redact, describe } = require('../redact');
+const { limiter } = require('../ratelimit');
 
 // Sign-in attempts are the one place worth rate limiting: everything else here
-// is read-only public statistics. Per address rather than per IP, since a whole
-// office behind one NAT should not lock itself out.
+// is read-only public statistics. Two counters, because either one alone leaves
+// the door open.
+//
+// Per address, so a whole office behind one NAT does not lock itself out when
+// one analyst fumbles a password.
+//
+// Per source as well, because the per-address counter never fires for someone
+// cycling addresses, and every attempt costs a bcrypt comparison whether or not
+// the account exists: the dummy hash that hides which addresses are registered
+// means an unknown address is exactly as expensive as a real one. Node runs one
+// thread, so an unlimited stream of those is enough on its own to stall the desk
+// for everyone signed in.
 const ATTEMPT_WINDOW_MS = 15 * 60_000;
-const MAX_ATTEMPTS = 8;
-const attempts = new Map();
+const MAX_PER_EMAIL = 8;
+const MAX_PER_SOURCE = 40; // well above a room full of typos, well below a flood
 
-// The map is keyed by whatever address was typed, and /login is necessarily
-// open, so without eviction anyone can grow it forever by trying a new address
-// each time. Entries older than the window carry no meaning, so they go.
-const SWEEP_MS = 5 * 60_000;
+const perEmail = limiter({ max: MAX_PER_EMAIL, windowMs: ATTEMPT_WINDOW_MS });
+const perSource = limiter({ max: MAX_PER_SOURCE, windowMs: ATTEMPT_WINDOW_MS });
 
-const sweep = setInterval(() => {
-  const cutoff = Date.now() - ATTEMPT_WINDOW_MS;
-  for (const [key, rec] of attempts) if (rec.first < cutoff) attempts.delete(key);
-}, SWEEP_MS);
+// req.ip reads x-forwarded-for only where server.js has been told to trust it,
+// and falls back to the socket address where it has not
+const sourceOf = (req) => req.ip || req.socket.remoteAddress || 'unknown';
 
-// a bare interval keeps the process alive on shutdown
-sweep.unref();
-
-function tooManyAttempts(key) {
-  const now = Date.now();
-  const rec = attempts.get(key);
-  if (!rec || now - rec.first > ATTEMPT_WINDOW_MS) return false;
-  return rec.count >= MAX_ATTEMPTS;
-}
-
-function recordAttempt(key) {
-  const now = Date.now();
-  const rec = attempts.get(key);
-  if (!rec || now - rec.first > ATTEMPT_WINDOW_MS) attempts.set(key, { first: now, count: 1 });
-  else rec.count += 1;
-}
-
-const clearAttempts = (key) => attempts.delete(key);
+// The token version is how the desk decides a session has ended, and nothing on
+// the page has any use for it, so it stops here rather than going out on the wire.
+const publicUser = (user) =>
+  user ? { id: user.id, email: user.email, name: user.name } : null;
 
 router.post('/login', async (req, res) => {
   if (!canIssue()) {
@@ -52,22 +46,26 @@ router.post('/login', async (req, res) => {
 
   if (!email || !password) return res.status(400).json({ error: 'email and password required' });
 
-  if (tooManyAttempts(email)) {
+  const source = sourceOf(req);
+  if (perEmail.blocked(email) || perSource.blocked(source)) {
     return res.status(429).json({ error: 'too many attempts, try again in 15 minutes' });
   }
 
   try {
     const user = await users.authenticate(email, password);
     if (!user) {
-      recordAttempt(email);
+      perEmail.record(email);
+      perSource.record(source);
       // one message for a wrong password and for an unknown address, so the
       // response cannot be used to enumerate who has an account
       return res.status(401).json({ error: 'email or password is incorrect' });
     }
 
-    clearAttempts(email);
+    // the source counter is not cleared: one correct password does not buy back
+    // the budget for a stream of wrong ones from the same place
+    perEmail.clear(email);
     res.cookie(COOKIE, issue(user), cookieOptions(remember ? ttlSeconds() : null));
-    res.json({ user });
+    res.json({ user: publicUser(user) });
   } catch (err) {
     const message = redact(describe(err));
     console.error(message);
@@ -77,21 +75,42 @@ router.post('/login', async (req, res) => {
     const down =
       ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND'].includes(err.code) ||
       /timeout exceeded when trying to connect/.test(err.message || '');
+    // the detail is logged above. An open endpoint answering with the driver's
+    // own text hands out table names and hostnames to anyone who asks.
     res.status(down ? 503 : 500).json({
-      error: down ? 'cannot reach the account database' : message,
+      error: down ? 'cannot reach the account database' : 'sign-in failed',
     });
   }
 });
 
-router.post('/logout', (req, res) => {
+// Clearing the cookie stops this browser sending the token. It does nothing to
+// the token, which stayed good for the rest of its twelve hours anywhere it had
+// been copied to, so the account's token version is bumped as well and the
+// cached account row dropped so the next request sees it.
+//
+// That ends the analyst's other sessions too. Signing out of the desk means
+// signing out of the desk, not out of one window of it.
+router.post('/logout', async (req, res) => {
+  const user = currentUser(req);
   res.clearCookie(COOKIE, cookieOptions(null));
+
+  if (user) {
+    try {
+      await users.bumpTokenVersion(user.id);
+      forget(user.id);
+    } catch (err) {
+      // the cookie is gone either way, so this is reported and not retried
+      console.error('sign-out could not revoke the token:', redact(describe(err)));
+    }
+  }
+
   res.json({ ok: true });
 });
 
 // The gate on every desk page asks this. It answers 200 either way so a signed
 // out visitor is a normal state rather than an error in the console.
 router.get('/me', (req, res) => {
-  res.json({ user: currentUser(req), provider: providerName() });
+  res.json({ user: publicUser(currentUser(req)), provider: providerName() });
 });
 
 module.exports = router;

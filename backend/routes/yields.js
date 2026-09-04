@@ -1,20 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const { fail } = require('../redact');
+const { cached, isoDate } = require('../providers');
+const { row } = require('../csv');
 
 const VALET = 'https://www.bankofcanada.ca/valet/observations';
 const FRED = 'https://api.stlouisfed.org/fred/series/observations';
 
 const CACHE_MS = 15 * 60_000; // yields print once a day, no reason to hammer either source
-const cache = new Map();
-
-async function cached(key, fn) {
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.data;
-  const data = await fn();
-  cache.set(key, { at: Date.now(), data });
-  return data;
-}
 
 // Maturity grid. Canada cannot fill every rung and that is a data fact, not a bug:
 //   1M   BoC stopped issuing after the CDOR wind-down, so there is no usable series
@@ -123,7 +116,7 @@ function spreadsFor(points, field) {
 // the API required a session: the internal request carried no cookie and came
 // back 401. An endpoint should never call itself.
 async function curveFor(date) {
-  const [bonds, bills, ...us] = await cached(`yields:${date || 'latest'}`, () =>
+  const [bonds, bills, ...us] = await cached(`yields:${date || 'latest'}`, CACHE_MS, () =>
     Promise.all([
       valetGroup('bond_yields_benchmark', date),
       valetGroup('tbill_tuesday', date),
@@ -158,9 +151,20 @@ async function curveFor(date) {
   };
 }
 
+// The date is concatenated into the Valet query string, so it is shape checked
+// before it gets there rather than passed through as typed.
+function parseDate(query) {
+  if (query.date == null || query.date === '') return { date: null };
+  const date = isoDate(query.date);
+  return date ? { date } : { error: 'date must be a date as YYYY-MM-DD' };
+}
+
 router.get('/', async (req, res) => {
+  const asked = parseDate(req.query);
+  if (asked.error) return res.status(400).json({ error: asked.error });
+
   try {
-    res.json(await curveFor(req.query.date || null));
+    res.json(await curveFor(asked.date));
   } catch (err) {
     fail(res, err);
   }
@@ -168,14 +172,15 @@ router.get('/', async (req, res) => {
 
 // CSV export, a stated requirement in the design doc
 router.get('/csv', async (req, res) => {
+  const asked = parseDate(req.query);
+  if (asked.error) return res.status(400).json({ error: asked.error });
+
   try {
-    const data = await curveFor(req.query.date || null);
+    const data = await curveFor(asked.date);
 
     const rows = [
       'maturity,months,canada_yield_pct,us_yield_pct,canada_note',
-      ...data.points.map((p) =>
-        [p.key, p.months, p.ca ?? '', p.us ?? '', p.caNote ? `"${p.caNote}"` : ''].join(',')
-      ),
+      ...data.points.map((p) => row([p.key, p.months, p.ca, p.us, p.caNote])),
     ];
 
     res.setHeader('Content-Type', 'text/csv');

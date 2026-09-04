@@ -9,8 +9,10 @@ const {
   observations,
   latestDate,
   isoAgo,
+  isoDate,
   describeSeries,
 } = require('../providers');
+const { row } = require('../csv');
 
 const CACHE_MS = 30 * 60_000; // official stats print monthly at best
 // The catalogue only moves when a series prints, and resolving it costs one
@@ -106,9 +108,12 @@ function parseRequest(query) {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const start = query.start || isoAgo(10);
+  // shape-checked, not just defaulted: it is concatenated into the Valet query
+  // string downstream, where anything else could add parameters of its own
+  const start = query.start ? isoDate(query.start) : isoAgo(10);
 
   if (!ids.length) return { error: 'ids required' };
+  if (!start) return { error: 'start must be a date as YYYY-MM-DD' };
 
   const unknown = ids.filter((id) => !byId(id) && !discoveredMeta(id));
   if (unknown.length) return { error: `unknown series: ${unknown.join(', ')}` };
@@ -161,7 +166,7 @@ router.get('/csv', async (req, res) => {
     const rows = ['series_id,label,country,source,units,date,value'];
     for (const s of series) {
       for (const o of s.observations) {
-        rows.push([s.id, `"${s.label}"`, s.country, s.source, `"${s.units}"`, o.d, o.v].join(','));
+        rows.push(row([s.id, s.label, s.country, s.source, s.units, o.d, o.v]));
       }
     }
 

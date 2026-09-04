@@ -7,14 +7,17 @@ const ROUNDS = 12;
 
 const byEmail = async (email) => {
   const { rows } = await pool.query(
-    'SELECT id, email, name, password_hash FROM users WHERE email = $1 LIMIT 1',
+    'SELECT id, email, name, password_hash, token_version FROM users WHERE email = $1 LIMIT 1',
     [String(email).trim().toLowerCase()],
   );
   return rows[0] || null;
 };
 
 const byId = async (id) => {
-  const { rows } = await pool.query('SELECT id, email, name FROM users WHERE id = $1 LIMIT 1', [id]);
+  const { rows } = await pool.query(
+    'SELECT id, email, name, token_version FROM users WHERE id = $1 LIMIT 1',
+    [id],
+  );
   return rows[0] || null;
 };
 
@@ -39,7 +42,17 @@ async function authenticate(email, password) {
   if (!user || !user.password_hash || !ok) return null;
 
   await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
-  return { id: user.id, email: user.email, name: user.name };
+  return { id: user.id, email: user.email, name: user.name, tokenVersion: user.token_version };
 }
 
-module.exports = { byEmail, byId, create, authenticate };
+// Ends every token this analyst is carrying, which is what signing out asks for.
+// Returns the new version so the caller does not have to read it back.
+async function bumpTokenVersion(id) {
+  const { rows } = await pool.query(
+    'UPDATE users SET token_version = token_version + 1 WHERE id = $1 RETURNING token_version',
+    [id],
+  );
+  return rows[0] ? rows[0].token_version : null;
+}
+
+module.exports = { byEmail, byId, create, authenticate, bumpTokenVersion };

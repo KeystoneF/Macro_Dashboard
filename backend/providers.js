@@ -9,6 +9,12 @@ const STATCAN_BASE = 'https://www150.statcan.gc.ca/t1/wds/rest';
 
 const cache = new Map();
 
+// Keys carry request input: the start date on a series, the text of a search.
+// Without a ceiling the map is a memory leak anyone signed in can drive, so it
+// is bounded. A Map iterates in insertion order and every write re-inserts, so
+// the first key out is the one written longest ago.
+const CACHE_MAX = 2_000;
+
 // Holds the promise, not the value: two analysts asking for the same series at
 // once should share one upstream call rather than race to make two.
 function cached(key, ttl, fn) {
@@ -18,7 +24,9 @@ function cached(key, ttl, fn) {
     cache.delete(key); // a failure must not be served for the next half hour
     throw err;
   });
+  cache.delete(key);
   cache.set(key, { at: Date.now(), data });
+  if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
   return data;
 }
 
@@ -234,6 +242,12 @@ async function latestDate(meta, { background = false } = {}) {
   return obs.length ? obs[obs.length - 1].d : null;
 }
 
+// A start date reaches Valet inside a query string that is built by hand, so
+// anything but a real date could append parameters of its own to the upstream
+// request. Checked here rather than in each route, because both routes that
+// take one hand it to the same fetch.
+const isoDate = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v ?? '')) ? String(v) : null);
+
 function isoAgo(years) {
   const d = new Date();
   d.setFullYear(d.getFullYear() - years);
@@ -351,4 +365,5 @@ module.exports = {
   observations,
   latestDate,
   isoAgo,
+  isoDate,
 };

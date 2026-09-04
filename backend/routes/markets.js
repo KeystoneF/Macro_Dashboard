@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { FX, COMMODITIES, SECTORS, BENCHMARK, PERIODS } = require('../instruments');
 const { fail } = require('../redact');
+const { row } = require('../csv');
 
 const BASE = 'https://financialmodelingprep.com/stable';
 
@@ -311,17 +312,17 @@ router.get('/csv', async (req, res) => {
         'sectors.csv',
         `sector,symbol,price,${PERIODS.map((p) => `change_${p.key}`).join(',')},${PERIODS.map((p) => `relative_${p.key}`).join(',')}`,
         rows.map((r) =>
-          [
-            `"${r.label}"`,
+          row([
+            r.label,
             r.symbol,
-            r.price ?? '',
-            ...PERIODS.map((p) => r.changePct[p.key] ?? ''),
+            r.price,
+            ...PERIODS.map((p) => r.changePct[p.key]),
             ...PERIODS.map((p) => {
               const a = r.changePct[p.key];
               const b = bm.changePct[p.key];
-              return a == null || b == null ? '' : Number((a - b).toFixed(2));
+              return a == null || b == null ? null : Number((a - b).toFixed(2));
             }),
-          ].join(','),
+          ]),
         ),
       );
     }
@@ -333,13 +334,7 @@ router.get('/csv', async (req, res) => {
       `${kind}.csv`,
       `instrument,symbol,currency,price,${PERIODS.map((p) => `change_${p.key}`).join(',')}`,
       rows.map((r) =>
-        [
-          `"${r.label}"`,
-          r.symbol,
-          r.currency,
-          r.price ?? '',
-          ...PERIODS.map((p) => r.changePct[p.key] ?? ''),
-        ].join(','),
+        row([r.label, r.symbol, r.currency, r.price, ...PERIODS.map((p) => r.changePct[p.key])]),
       ),
     );
   } catch (err) {
@@ -524,16 +519,16 @@ router.get('/heatmap/csv', async (req, res) => {
       `heatmap-${key}-${period}.csv`,
       `ticker,symbol,name,sector,currency,market_cap,price,change_pct`,
       tiles.map((t) =>
-        [
+        row([
           t.ticker,
           t.symbol,
-          `"${String(t.name).replace(/"/g, '""')}"`,
-          `"${t.sector}"`,
+          t.name,
+          t.sector,
           currency,
           t.marketCap,
-          t.price ?? '',
-          t.changePct[period] ?? '',
-        ].join(','),
+          t.price,
+          t.changePct[period],
+        ]),
       ),
     );
   } catch (err) {
