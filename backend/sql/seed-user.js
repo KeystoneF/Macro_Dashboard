@@ -39,12 +39,15 @@ async function main() {
 
   const existing = await users.byEmail(email);
   if (existing) {
-    await pool.query('UPDATE users SET name = $1, password_hash = $2 WHERE id = $3', [
-      name,
-      await bcrypt.hash(password, 12),
-      existing.id,
-    ]);
-    console.log(`updated ${email}`);
+    // A new hash does nothing to a session already open: the cookie was issued
+    // against the old password and stays valid for the rest of its twelve hours.
+    // Bumping the version is what ends those, which is the point of resetting a
+    // password for an account that may be in someone else's hands.
+    await pool.query(
+      'UPDATE users SET name = $1, password_hash = $2, token_version = token_version + 1 WHERE id = $3',
+      [name, await bcrypt.hash(password, 12), existing.id],
+    );
+    console.log(`updated ${email}, and signed out every session it had open`);
   } else {
     await users.create({ email, name, password });
     console.log(`created ${email}`);
