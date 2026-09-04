@@ -1,15 +1,5 @@
-// Chart sources for the valuation panel.
-
-// GuruFocus
-const SHILLER = {
-  id: 'shiller',
-  label: 'Shiller PE ratio',
-  source: 'GuruFocus',
-  page: 'https://www.gurufocus.com/shiller-PE.php',
-  // ratio, average and stamp are text inside the SVG
-  url: 'https://chart.gurufocus.com/2095195182805983232.svg',
-  type: 'image/svg+xml',
-};
+// Chart sources for the valuation panel. The Shiller series is data, not a
+// render, and lives in `shiller.js`.
 
 // Yardeni
 const YARDENI_PAGE =
@@ -41,8 +31,8 @@ const YARDENI = [
   type: 'image/png',
 }));
 
-const byId = new Map([SHILLER, ...YARDENI].map((c) => [c.id, c]));
+const byId = new Map(YARDENI.map((c) => [c.id, c]));
 
 const chart = (id) => byId.get(String(id)) || null;
 
-module.exports = { SHILLER, YARDENI, YARDENI_PAGE, chart };
+module.exports = { YARDENI, YARDENI_PAGE, chart };

@@ -78,7 +78,7 @@ export const MODULES: Module[] = [
     group: 'Coverage',
     mockup: '4-sector-tracker.html',
     state: 'live',
-    note: "Valuation is the publishers' own charts: neither GuruFocus nor Yardeni sells a feed.",
+    note: "Shiller CAPE is Shiller's own monthly series. Yardeni sells no feed, so that half is the publisher's chart.",
   },
   {
     num: '08',

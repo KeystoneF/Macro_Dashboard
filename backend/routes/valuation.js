@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { SHILLER, YARDENI, YARDENI_PAGE, chart } = require('../valuation');
+const { YARDENI, YARDENI_PAGE, chart } = require('../valuation');
+const { SHILLER, load: loadShiller } = require('../shiller');
 const { USER_AGENT } = require('../feeds');
 const { fail, redact } = require('../redact');
 
@@ -45,50 +46,24 @@ function load(entry) {
   return p;
 }
 
-const num = (m) => (m && Number.isFinite(Number(m[1])) ? Number(m[1]) : null);
-
-// reads the UTC stamp printed on the chart, falling back to last-modified.
-// "Sept." is trimmed to three letters for Date.parse
-function stampOf(svg, lastModified) {
-  const printed = svg.match(/Interactive Charts\.\s*([^<]*?)\.\s*Powered by/i);
-  if (printed) {
-    const t = Date.parse(printed[1].replace(/^([A-Za-z]{3})[a-z]*\.?/, '$1'));
-    if (Number.isFinite(t)) return new Date(t).toISOString();
-  }
-  const t = Date.parse(lastModified || '');
-  return Number.isFinite(t) ? new Date(t).toISOString() : null;
-}
-
-// reads the figures GuruFocus writes as text in the SVG, null without a stamp
-function readShiller(body, lastModified) {
-  const svg = body.toString('utf8');
-  const value = num(svg.match(/current:\s*([\d.]+)/i));
-  const average = num(svg.match(/Historical Average:\s*([\d.]+)/i));
-  const asOf = stampOf(svg, lastModified);
-  return { value: asOf ? value : null, average: asOf ? average : null, asOf };
-}
+// Warmed at boot, because the workbook is 1.6MB and the parse is the slowest
+// thing on this module.
+loadShiller().catch((err) => console.error('shiller warm failed:', redact(err.message)));
 
 router.get('/', async (req, res) => {
-  let shiller = { value: null, average: null, asOf: null };
+  let shiller = { observations: [], value: null, average: null, asOf: null, from: null, updated: null };
   let error = null;
 
   try {
-    const { body, lastModified } = await load(SHILLER);
-    shiller = readShiller(body, lastModified);
+    const { at, ...series } = await loadShiller();
+    shiller = series;
   } catch (err) {
     // rows stay at n/a and the panel still renders
     error = redact(err.message);
   }
 
   res.json({
-    shiller: {
-      id: SHILLER.id,
-      label: SHILLER.label,
-      source: SHILLER.source,
-      page: SHILLER.page,
-      ...shiller,
-      error,
-    },
+    shiller: { ...SHILLER, ...shiller, error },
     yardeni: {
       page: YARDENI_PAGE,
       source: YARDENI[0].source,

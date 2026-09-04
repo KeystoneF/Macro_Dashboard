@@ -7,7 +7,17 @@ import { COLOR, FONT, RADIUS, card } from '../../theme';
 import { niceScale, tickDigits } from '../../lib/scale';
 import { getJson } from '../../lib/api';
 import { svgToPng } from '../../lib/png';
-import { plotH, plotW, type Frame } from '../../components/chart';
+import {
+  plotH,
+  plotW,
+  Gridlines,
+  HoverRule,
+  XLabels,
+  timeAt,
+  type Frame,
+} from '../../components/chart';
+import SeriesLine from '../../components/SeriesLine';
+import { nearest, toTime, yearTicks, type Obs } from '../../lib/time';
 
 type Row = {
   symbol: string;
@@ -25,9 +35,12 @@ type Valuation = {
     label: string;
     source: string;
     page: string;
+    observations: Obs[];
     value: number | null;
     average: number | null;
     asOf: string | null;
+    from: string | null;
+    updated: string | null;
     error: string | null;
   };
   yardeni: { page: string; source: string; charts: { id: string; label: string }[] };
@@ -40,6 +53,9 @@ const CHART_URL = (id: string) => `/api/valuation/chart/${id}`;
 
 const FRAME: Frame = { w: 900, h: 300, pad: { top: 16, right: 18, bottom: 54, left: 52 } };
 
+// narrower, because the panel shares a row with the sector table
+const CAPE_FRAME: Frame = { w: 620, h: 250, pad: { top: 14, right: 16, bottom: 44, left: 44 } };
+
 export default function SectorTrackerPage() {
   const [period, setPeriod] = useState('YTD');
   const [data, setData] = useState<Sectors | null>(null);
@@ -47,6 +63,8 @@ export default function SectorTrackerPage() {
   const [valuation, setValuation] = useState<Valuation | null>(null);
   const [peChart, setPeChart] = useState('sp-mag7-smid');
   const chartRef = useRef<SVGSVGElement | null>(null);
+  const capeRef = useRef<SVGSVGElement | null>(null);
+  const [capeHover, setCapeHover] = useState<number | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -103,6 +121,31 @@ export default function SectorTrackerPage() {
   }, [ranked, period, data]);
 
   const benchChange = data?.benchmark.changePct[period] ?? null;
+
+  const cape = useMemo(() => {
+    const points = valuation?.shiller.observations ?? [];
+    if (points.length < 2) return null;
+
+    const average = valuation?.shiller.average ?? null;
+    const values = points.map((p) => p.v);
+    const { lo, hi, ticks, step } = niceScale(
+      Math.min(...values, average ?? Infinity),
+      Math.max(...values, average ?? -Infinity),
+    );
+    const t0 = toTime(points[0].d);
+    const t1 = toTime(points[points.length - 1].d);
+
+    return {
+      points,
+      t0,
+      t1,
+      ticks,
+      digits: tickDigits(step ?? 1),
+      x: (t: number) => CAPE_FRAME.pad.left + (plotW(CAPE_FRAME) * (t - t0)) / (t1 - t0 || 1),
+      y: (v: number) => CAPE_FRAME.pad.top + plotH(CAPE_FRAME) * (1 - (v - lo) / (hi - lo)),
+      years: yearTicks(t0, t1),
+    };
+  }, [valuation]);
 
   return (
     <main className="desk-page" style={T.page}>
@@ -340,22 +383,99 @@ export default function SectorTrackerPage() {
           <div style={T.cardHead}>
             <div>
               <h2 style={T.h2}>Shiller PE</h2>
-              <p style={{ ...T.desc, marginBottom: 0 }}>Cyclically adjusted, as GuruFocus publishes it</p>
+              <p style={{ ...T.desc, marginBottom: 0 }}>
+                Cyclically adjusted, monthly average of daily closes. The dashed rule is the
+                all-time mean
+              </p>
             </div>
-            <div style={T.readout}>{stampOf(valuation?.shiller.asOf)}</div>
+            <div style={T.readout}>
+              {capeHover != null && cape ? (
+                <>
+                  <b style={{ color: COLOR.ink }}>
+                    {new Date(capeHover).toISOString().slice(0, 7)}
+                  </b>
+                  <span style={{ color: COLOR.accentLt }}>
+                    {nearest(cape.points, capeHover)?.v.toFixed(1) ?? 'n/a'}
+                  </span>
+                </>
+              ) : (
+                fileStamp(valuation?.shiller.updated)
+              )}
+            </div>
           </div>
+
           <table style={T.table}>
             <tbody>
-              <Reference label="Current" value={valuation?.shiller.value} />
-              <Reference label="All-time historical average" value={valuation?.shiller.average} />
+              <Reference
+                label={`Current, ${monthLabel(valuation?.shiller.asOf)}`}
+                value={valuation?.shiller.value}
+              />
+              <Reference
+                label={`All-time mean, ${monthLabel(valuation?.shiller.from)} to date`}
+                value={valuation?.shiller.average}
+              />
             </tbody>
           </table>
-          <PublisherChart
-            src={CHART_URL('shiller')}
-            alt="Shiller PE ratio, published by GuruFocus"
-            page={valuation?.shiller.page}
-            credit={valuation?.shiller.source}
-          />
+
+          {!cape ? (
+            <p style={{ ...T.desc, margin: '14px 0 0' }}>
+              {valuation?.shiller.error ? `Series unavailable from ${valuation.shiller.source}` : 'Loading'}
+            </p>
+          ) : (
+            <>
+              <div style={T.controls}>
+                <div style={T.spacer} />
+                <button
+                  style={T.control}
+                  onClick={() =>
+                    capeRef.current &&
+                    svgToPng(capeRef.current, 'shiller-cape.png', COLOR.bg, FONT.body)
+                  }
+                >
+                  PNG
+                </button>
+              </div>
+
+              <svg
+                ref={capeRef}
+                viewBox={`0 0 ${CAPE_FRAME.w} ${CAPE_FRAME.h}`}
+                style={{ width: '100%', height: 'auto' }}
+                onMouseLeave={() => setCapeHover(null)}
+                onMouseMove={(e) => setCapeHover(timeAt(e, CAPE_FRAME, cape.t0, cape.t1))}
+              >
+                <Gridlines frame={CAPE_FRAME} ticks={cape.ticks} y={cape.y} digits={cape.digits} />
+
+                <XLabels
+                  frame={CAPE_FRAME}
+                  items={cape.years.map((t) => ({
+                    at: cape.x(t),
+                    label: String(new Date(t).getUTCFullYear()),
+                  }))}
+                />
+
+                {valuation?.shiller.average != null && (
+                  <line
+                    x1={CAPE_FRAME.pad.left}
+                    x2={CAPE_FRAME.w - CAPE_FRAME.pad.right}
+                    y1={cape.y(valuation.shiller.average)}
+                    y2={cape.y(valuation.shiller.average)}
+                    stroke={COLOR.line}
+                    strokeDasharray="5 3"
+                  />
+                )}
+
+                <SeriesLine points={cape.points} color={COLOR.accent} x={cape.x} y={cape.y} width={1.5} />
+
+                {capeHover != null && <HoverRule frame={CAPE_FRAME} x={cape.x(capeHover)} />}
+              </svg>
+
+              <p style={{ ...T.desc, margin: '8px 0 0' }}>
+                <a href={valuation?.shiller.page} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>
+                  {valuation?.shiller.source}
+                </a>
+              </p>
+            </>
+          )}
         </section>
       </div>
 
@@ -451,9 +571,18 @@ function PublisherChart({
   );
 }
 
-// formats the stamp read off the chart
-const stampOf = (iso?: string | null) =>
-  iso ? `As of ${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC` : 'As of n/a';
+// the day Shiller last republished the workbook, which is not the period of
+// the last print
+const fileStamp = (iso?: string | null) => (iso ? `File ${iso.slice(0, 10)}` : 'File n/a');
+
+const monthLabel = (period?: string | null) =>
+  period
+    ? new Date(toTime(period)).toLocaleString('en-CA', {
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC',
+      })
+    : 'n/a';
 
 const fmtPct = (v: number | null | undefined) =>
   v == null ? 'n/a' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`;
