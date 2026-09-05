@@ -153,31 +153,31 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Everything the long format carried in columns of its own, in the one row a
-// wide grid has for it. The id is what reproduces the pull.
-const column = (s) =>
-  `${s.country} ${s.label}${s.units ? `, ${s.units}` : ''} [${s.source} ${s.id}]`;
+// Long format, one block of columns per series rather than one series
+// continuing underneath the last in the same columns. Each block keeps its own
+// dates: series here run at different frequencies and nothing is aligned onto
+// another series' calendar, so a shorter series just runs out of rows.
+const COLUMNS = ['series_id', 'label', 'country', 'source', 'units', 'date', 'value'];
 
-// Wide: one column per series, side by side, rather than a second series
-// continuing underneath the first in the same column.
-//
-// The date column is the union of the periods that actually printed, so a
-// series running at a different cadence leaves a cell empty on a date it has no
-// print for. Nothing is carried forward or interpolated to fill one: empty is
-// what n/a looks like in a spreadsheet.
 router.get('/csv', async (req, res) => {
   const asked = parseRequest(req.query);
   if (asked.error) return res.status(400).json({ error: asked.error });
 
   try {
     const series = await seriesFor(asked.ids, asked.start);
+    const longest = Math.max(0, ...series.map((s) => s.observations.length));
 
-    const dates = [...new Set(series.flatMap((s) => s.observations.map((o) => o.d)))].sort();
-    const values = series.map((s) => new Map(s.observations.map((o) => [o.d, o.v])));
-
-    const rows = [row(['date', ...series.map(column)])];
-    for (const d of dates) {
-      rows.push(row([d, ...values.map((v) => (v.has(d) ? v.get(d) : null))]));
+    const rows = [row(series.flatMap(() => COLUMNS))];
+    for (let i = 0; i < longest; i++) {
+      rows.push(
+        row(
+          series.flatMap((s) => {
+            const o = s.observations[i];
+            if (!o) return COLUMNS.map(() => null);
+            return [s.id, s.label, s.country, s.source, s.units, o.d, o.v];
+          }),
+        ),
+      );
     }
 
     res.setHeader('Content-Type', 'text/csv');
