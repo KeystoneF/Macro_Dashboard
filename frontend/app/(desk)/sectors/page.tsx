@@ -19,7 +19,7 @@ import {
   type Frame,
 } from '../../components/chart';
 import SeriesLine from '../../components/SeriesLine';
-import { nearest, toTime, yearsAgo, yearTicks, type Obs } from '../../lib/time';
+import { nearest, timeTicks, toTime, yearsAgo, type Obs } from '../../lib/time';
 
 type Row = {
   symbol: string;
@@ -64,13 +64,21 @@ const BOARDS: [string, string][] = [
   ['ca', 'Canada'],
 ];
 
-// CAPE runs monthly from 1881, so its windows are not the explorer's.
+// CAPE runs monthly from 1881, so its windows reach further than the explorer's.
 const CAPE_SPANS: [string, number | null][] = [
+  ['1Y', 1],
+  ['5Y', 5],
   ['10Y', 10],
   ['25Y', 25],
   ['50Y', 50],
   ['All', null],
 ];
+
+// The workbook is a 1.6MB download at the API's boot, so the first answer can
+// carry an error the next one will not. Retried rather than left dead until the
+// analyst reloads the page.
+const VALUATION_RETRY_MS = 6_000;
+const VALUATION_RETRIES = 5;
 
 const CHART_URL = (id: string) => `/api/valuation/chart/${id}`;
 
@@ -116,11 +124,31 @@ export default function SectorTrackerPage() {
   // loaded once, not on the quote timer
   useEffect(() => {
     let live = true;
-    getJson<Valuation>('/api/valuation')
-      .then((v) => live && setValuation(v))
-      .catch(() => live && setValuation(null));
+    let timer: ReturnType<typeof setTimeout>;
+    let tries = 0;
+
+    const again = () => {
+      if (++tries < VALUATION_RETRIES) timer = setTimeout(load, VALUATION_RETRY_MS);
+    };
+
+    const load = () => {
+      getJson<Valuation>('/api/valuation')
+        .then((v) => {
+          if (!live) return;
+          setValuation(v);
+          if (v.shiller.error) again();
+        })
+        .catch(() => {
+          if (!live) return;
+          setValuation(null);
+          again();
+        });
+    };
+
+    load();
     return () => {
       live = false;
+      clearTimeout(timer);
     };
   }, []);
 
@@ -179,7 +207,8 @@ export default function SectorTrackerPage() {
       mean: average != null && average >= lo && average <= hi ? average : null,
       x: (t: number) => CAPE_FRAME.pad.left + (plotW(CAPE_FRAME) * (t - t0)) / (t1 - t0 || 1),
       y: (v: number) => CAPE_FRAME.pad.top + plotH(CAPE_FRAME) * (1 - (v - lo) / (hi - lo)),
-      years: yearTicks(t0, t1),
+      // a one year window labelled on whole years gets a single tick
+      labels: timeTicks(t0, t1),
     };
   }, [valuation, capeSpan]);
 
@@ -520,10 +549,7 @@ export default function SectorTrackerPage() {
                 <XLabels
                   frame={CAPE_FRAME}
                   offset={28}
-                  items={cape.years.map((t) => ({
-                    at: cape.x(t),
-                    label: String(new Date(t).getUTCFullYear()),
-                  }))}
+                  items={cape.labels.map(({ t, label }) => ({ at: cape.x(t), label }))}
                 />
 
                 <AxisLabel frame={CAPE_FRAME} text="Shiller PE (CAPE)" />

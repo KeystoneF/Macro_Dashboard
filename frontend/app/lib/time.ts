@@ -40,6 +40,31 @@ export function yearTicks(t0: number, t1: number): number[] {
   return out.filter((t) => t >= t0 && t <= t1);
 }
 
+// At most seven labels, on whole months.
+export function monthTicks(t0: number, t1: number): number[] {
+  const from = new Date(t0);
+  const to = new Date(t1);
+  const span =
+    (to.getUTCFullYear() - from.getUTCFullYear()) * 12 + (to.getUTCMonth() - from.getUTCMonth());
+  const step = Math.max(1, Math.ceil(span / 6));
+  const out: number[] = [];
+  for (let m = 0; m <= span; m += step) {
+    const t = Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + m, 1);
+    if (t >= t0 && t <= t1) out.push(t);
+  }
+  return out;
+}
+
+// Years, or months where the window is too short to carry three of them: a one
+// year chart labelled on years gets a single tick.
+export function timeTicks(t0: number, t1: number): { t: number; label: string }[] {
+  const years = yearTicks(t0, t1);
+  if (years.length >= 3) {
+    return years.map((t) => ({ t, label: String(new Date(t).getUTCFullYear()) }));
+  }
+  return monthTicks(t0, t1).map((t) => ({ t, label: new Date(t).toISOString().slice(0, 7) }));
+}
+
 export type Obs = { d: string; v: number };
 
 // Widest gap a readout will reach across. Beyond it the cursor is nowhere near
