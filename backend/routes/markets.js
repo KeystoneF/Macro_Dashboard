@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { FX, COMMODITIES, SECTORS, BENCHMARK, PERIODS } = require('../instruments');
+const { FX, COMMODITIES, SECTOR_SYMBOLS, sectorBoard, PERIODS } = require('../instruments');
 const { fail } = require('../redact');
 const { row } = require('../csv');
 
@@ -97,7 +97,7 @@ function buildRows(instruments, quotes, changes) {
   });
 }
 
-async function board(instruments, fresh) {
+async function instrumentRows(instruments, fresh) {
   const symbols = instruments.map((i) => i.symbol);
   const [quotes, changes] = await Promise.all([quoteBatch(symbols, fresh), changeBatch(symbols)]);
   return buildRows(instruments, indexBy(quotes), indexBy(changes));
@@ -127,7 +127,7 @@ router.get('/periods', (req, res) => res.json({ periods: PERIODS.map((p) => p.ke
 
 router.get('/fx', async (req, res) => {
   try {
-    res.json(asOfBody(await board(FX, wantsFresh(req))));
+    res.json(asOfBody(await instrumentRows(FX, wantsFresh(req))));
   } catch (err) {
     fail(res, err);
   }
@@ -135,46 +135,57 @@ router.get('/fx', async (req, res) => {
 
 router.get('/commodities', async (req, res) => {
   try {
-    res.json(asOfBody(await board(COMMODITIES, wantsFresh(req))));
+    res.json(asOfBody(await instrumentRows(COMMODITIES, wantsFresh(req))));
   } catch (err) {
     fail(res, err);
   }
 });
+
+// Shared by the board route and its export. One call for the quotes and one
+// for every period column, whichever board is asked for.
+async function sectorRows(board, fresh) {
+  const symbols = [...board.sectors.map((s) => s.symbol), board.benchmark.symbol];
+  const [quotes, changes] = await Promise.all([quoteBatch(symbols, fresh), changeBatch(symbols)]);
+  const q = indexBy(quotes);
+  const c = indexBy(changes);
+
+  const rows = buildRows(board.sectors, q, c);
+  const [benchmark] = buildRows([board.benchmark], q, c);
+
+  // Relative is the sector's move less the benchmark's over the same period.
+  // Both numbers are published, so the difference is arithmetic on real data
+  // rather than a modelled figure, and it is null whenever either side is.
+  for (const r of rows) {
+    r.relative = {};
+    for (const p of PERIODS) {
+      const a = r.changePct[p.key];
+      const b = benchmark.changePct[p.key];
+      r.relative[p.key] = a == null || b == null ? null : Number((a - b).toFixed(2));
+    }
+  }
+
+  return { rows, benchmark };
+}
+
+const boardOf = (req) => sectorBoard(req.query.board);
 
 router.get('/sectors', async (req, res) => {
+  const board = boardOf(req);
+  if (!board) return res.status(400).json({ error: `unknown board: ${req.query.board}` });
+
   try {
-    const symbols = [...SECTORS.map((s) => s.symbol), BENCHMARK.symbol];
-    const [quotes, changes] = await Promise.all([
-      quoteBatch(symbols, wantsFresh(req)),
-      changeBatch(symbols),
-    ]);
-    const q = indexBy(quotes);
-    const c = indexBy(changes);
-
-    const rows = buildRows(SECTORS, q, c);
-    const [benchmark] = buildRows([BENCHMARK], q, c);
-
-    // Relative is the sector's move less the benchmark's over the same period.
-    // Both numbers are published, so the difference is arithmetic on real data
-    // rather than a modelled figure, and it is null whenever either side is.
-    for (const row of rows) {
-      row.relative = {};
-      for (const p of PERIODS) {
-        const a = row.changePct[p.key];
-        const b = benchmark.changePct[p.key];
-        row.relative[p.key] = a == null || b == null ? null : Number((a - b).toFixed(2));
-      }
-    }
-
-    res.json({ ...asOfBody(rows), benchmark });
+    const { rows, benchmark } = await sectorRows(board, wantsFresh(req));
+    res.json({
+      ...asOfBody(rows),
+      benchmark,
+      board: { key: board.key, label: board.label, currency: board.currency },
+    });
   } catch (err) {
     fail(res, err);
   }
 });
 
-const KNOWN = new Map(
-  [...FX, ...COMMODITIES, ...SECTORS, BENCHMARK].map((i) => [i.symbol, i]),
-);
+const KNOWN = new Map([...FX, ...COMMODITIES, ...SECTOR_SYMBOLS].map((i) => [i.symbol, i]));
 
 const isoAgo = (days) => new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
 
@@ -303,32 +314,29 @@ router.get('/csv', async (req, res) => {
   const kind = String(req.query.kind || 'fx');
   try {
     if (kind === 'sectors') {
-      const symbols = [...SECTORS.map((s) => s.symbol), BENCHMARK.symbol];
-      const [quotes, changes] = await Promise.all([quoteBatch(symbols), changeBatch(symbols)]);
-      const rows = buildRows(SECTORS, indexBy(quotes), indexBy(changes));
-      const [bm] = buildRows([BENCHMARK], indexBy(quotes), indexBy(changes));
+      const board = boardOf(req);
+      if (!board) return res.status(400).json({ error: `unknown board: ${req.query.board}` });
+
+      const { rows } = await sectorRows(board);
       return sendCsv(
         res,
-        'sectors.csv',
-        `sector,symbol,price,${PERIODS.map((p) => `change_${p.key}`).join(',')},${PERIODS.map((p) => `relative_${p.key}`).join(',')}`,
+        `sectors-${board.key}.csv`,
+        `sector,symbol,currency,price,${PERIODS.map((p) => `change_${p.key}`).join(',')},${PERIODS.map((p) => `relative_${p.key}`).join(',')}`,
         rows.map((r) =>
           row([
             r.label,
             r.symbol,
+            board.currency,
             r.price,
             ...PERIODS.map((p) => r.changePct[p.key]),
-            ...PERIODS.map((p) => {
-              const a = r.changePct[p.key];
-              const b = bm.changePct[p.key];
-              return a == null || b == null ? null : Number((a - b).toFixed(2));
-            }),
+            ...PERIODS.map((p) => r.relative[p.key]),
           ]),
         ),
       );
     }
 
     const instruments = kind === 'commodities' ? COMMODITIES : FX;
-    const rows = await board(instruments);
+    const rows = await instrumentRows(instruments);
     return sendCsv(
       res,
       `${kind}.csv`,

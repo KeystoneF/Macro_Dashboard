@@ -43,24 +43,54 @@ const COMMODITIES = [
   { symbol: 'ZCUSX', label: 'Corn', group: 'Agriculture', currency: 'USX', unit: 'cents per bushel', decimals: 2 },
 ];
 
-// One ETF per GICS sector, the State Street sector tracker line-up named in the
-// design doc. SPY is the benchmark the relative column is measured against and
-// is not itself a sector.
-const SECTORS = [
-  { symbol: 'XLK', label: 'Technology' },
-  { symbol: 'XLF', label: 'Financials' },
-  { symbol: 'XLE', label: 'Energy' },
-  { symbol: 'XLV', label: 'Health Care' },
-  { symbol: 'XLI', label: 'Industrials' },
-  { symbol: 'XLY', label: 'Consumer Discretionary' },
-  { symbol: 'XLP', label: 'Consumer Staples' },
-  { symbol: 'XLU', label: 'Utilities' },
-  { symbol: 'XLB', label: 'Materials' },
-  { symbol: 'XLRE', label: 'Real Estate' },
-  { symbol: 'XLC', label: 'Communication Services' },
-];
+// Two sector boards, one ETF per sector on each, and the benchmark the
+// relative column is measured against. Canada is the shorter board: the TSX
+// sector funds cover six of the eleven GICS sectors, so a sector missing here
+// is a fund that does not exist rather than a quote that failed.
+//
+// The two boards are not quoted in the same currency, so each carries its own.
+const SECTOR_BOARDS = {
+  us: {
+    key: 'us',
+    label: 'United States',
+    currency: 'USD',
+    // the State Street line-up named in the design doc
+    benchmark: { symbol: 'SPY', label: 'S&P 500' },
+    sectors: [
+      { symbol: 'XLK', label: 'Technology' },
+      { symbol: 'XLF', label: 'Financials' },
+      { symbol: 'XLE', label: 'Energy' },
+      { symbol: 'XLV', label: 'Health Care' },
+      { symbol: 'XLI', label: 'Industrials' },
+      { symbol: 'XLY', label: 'Consumer Discretionary' },
+      { symbol: 'XLP', label: 'Consumer Staples' },
+      { symbol: 'XLU', label: 'Utilities' },
+      { symbol: 'XLB', label: 'Materials' },
+      { symbol: 'XLRE', label: 'Real Estate' },
+      { symbol: 'XLC', label: 'Communication Services' },
+    ],
+  },
+  ca: {
+    key: 'ca',
+    label: 'Canada',
+    currency: 'CAD',
+    // XIU tracks the S&P/TSX 60, not the Composite, and is labelled as what it is
+    benchmark: { symbol: 'XIU.TO', label: 'S&P/TSX 60' },
+    sectors: [
+      { symbol: 'XEG.TO', label: 'Energy' },
+      { symbol: 'XIT.TO', label: 'Information Technology' },
+      { symbol: 'XMA.TO', label: 'Materials' },
+      { symbol: 'XFN.TO', label: 'Financials' },
+      { symbol: 'XRE.TO', label: 'Real Estate' },
+      { symbol: 'XUT.TO', label: 'Utilities' },
+    ],
+  },
+};
 
-const BENCHMARK = { symbol: 'SPY', label: 'S&P 500' };
+const sectorBoard = (key) => SECTOR_BOARDS[String(key || 'us')] || null;
+
+// every symbol either board draws, for the routes that need one flat list
+const SECTOR_SYMBOLS = Object.values(SECTOR_BOARDS).flatMap((b) => [...b.sectors, b.benchmark]);
 
 // The board's period buttons on the left, the key FMP answers with on the right.
 // Its "5D" is the week, and ytd is lowercase where every other key is not.
@@ -73,4 +103,4 @@ const PERIODS = [
   { key: '1Y', field: '1Y' },
 ];
 
-module.exports = { FX, COMMODITIES, SECTORS, BENCHMARK, PERIODS };
+module.exports = { FX, COMMODITIES, SECTOR_BOARDS, SECTOR_SYMBOLS, sectorBoard, PERIODS };

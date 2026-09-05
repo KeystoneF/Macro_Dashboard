@@ -284,11 +284,14 @@ function BoardTable({
       <h2 style={T.h2}>{title}</h2>
       <p style={T.desc}>{note}</p>
       <div style={T.scrollX}>
-        <table style={{ ...T.table, minWidth: 380 }}>
+        <table style={{ ...T.table, minWidth: 430 }}>
         <thead>
           <tr>
             <th style={T.th}>Instrument</th>
             <th style={{ ...T.th, textAlign: 'right' }}>Last</th>
+            {/* its own column: sharing the Last cell pushed the price off the
+                right edge whenever a row was running behind */}
+            <th style={{ ...T.th, textAlign: 'right' }}>Quoted</th>
             <th style={{ ...T.th, textAlign: 'right' }}>{period} %</th>
             <th style={{ ...T.th, textAlign: 'right' }}>Day range</th>
           </tr>
@@ -296,7 +299,7 @@ function BoardTable({
         {!board && (
           <tbody>
             <tr>
-              <td style={{ ...T.td, color: COLOR.dim }} colSpan={4}>
+              <td style={{ ...T.td, color: COLOR.dim }} colSpan={5}>
                 Loading
               </td>
             </tr>
@@ -305,7 +308,7 @@ function BoardTable({
         {groups.map((g) => (
           <tbody key={g}>
             <tr>
-              <td style={S.groupHead} colSpan={4}>
+              <td style={S.groupHead} colSpan={5}>
                 {g}
               </td>
             </tr>
@@ -314,7 +317,6 @@ function BoardTable({
               .map((r) => {
                 const on = r.symbol === selected;
                 const chg = r.changePct[period];
-                const lag = behind(r);
                 return (
                   <tr
                     key={r.symbol}
@@ -333,14 +335,15 @@ function BoardTable({
                     </td>
                     <td style={{ ...T.td, textAlign: 'right', color: COLOR.ink }}>
                       {fmtPrice(r.price, r.decimals)}
-                      {/* a price that is not moving because the feed is
-                          delayed, or because the pit is shut, looks exactly
-                          like a live one otherwise */}
-                      {lag && (
-                        <span style={S.age} title={`Last print ${lag} ago, from FMP`}>
-                          {lag}
-                        </span>
-                      )}
+                    </td>
+                    {/* a price that is not moving because the feed is delayed,
+                        or because the pit is shut, looks exactly like a live
+                        one otherwise */}
+                    <td
+                      style={{ ...T.td, ...S.age, textAlign: 'right' }}
+                      title={r.quotedAt ? `Last print ${r.quotedAt.slice(11, 19)} UTC, from FMP` : undefined}
+                    >
+                      {age(r)}
                     </td>
                     <td style={{ ...T.td, textAlign: 'right', color: pctColor(chg) }}>
                       {fmtPct(chg)}
@@ -430,13 +433,10 @@ function dateLabels(points: Obs[], x: (t: number) => number) {
 const minutesBehind = (r: Row) =>
   r.quotedAt == null ? null : Math.floor((Date.now() - Date.parse(r.quotedAt)) / 60_000);
 
-// Anything inside a couple of minutes is the feed keeping up, and tagging it
-// would put a badge on every row and mean nothing.
-const LIVE_WITHIN_MIN = 2;
-
-function behind(r: Row): string {
+function age(r: Row): string {
   const mins = minutesBehind(r);
-  if (mins == null || mins < LIVE_WITHIN_MIN) return '';
+  if (mins == null) return 'n/a';
+  if (mins < 1) return 'now';
   return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h`;
 }
 
@@ -466,9 +466,8 @@ const S: Record<string, CSSProperties> = {
     letterSpacing: '.2px',
   },
   age: {
-    fontSize: 9,
+    fontSize: 10.5,
     color: COLOR.dim,
-    marginLeft: 6,
     letterSpacing: '.2px',
     fontVariantNumeric: 'tabular-nums',
   },

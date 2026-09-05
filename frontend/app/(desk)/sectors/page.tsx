@@ -10,14 +10,16 @@ import { svgToPng } from '../../lib/png';
 import {
   plotH,
   plotW,
+  AxisLabel,
   Gridlines,
   HoverRule,
+  LegendRule,
   XLabels,
   timeAt,
   type Frame,
 } from '../../components/chart';
 import SeriesLine from '../../components/SeriesLine';
-import { nearest, toTime, yearTicks, type Obs } from '../../lib/time';
+import { nearest, toTime, yearsAgo, yearTicks, type Obs } from '../../lib/time';
 
 type Row = {
   symbol: string;
@@ -28,7 +30,14 @@ type Row = {
 };
 
 type Benchmark = { symbol: string; label: string; price: number | null; changePct: Record<string, number | null> };
-type Sectors = { rows: Row[]; benchmark: Benchmark; quotedAt: string | null; fetchedAt: string };
+type Board = { key: string; label: string; currency: string };
+type Sectors = {
+  rows: Row[];
+  benchmark: Benchmark;
+  board: Board;
+  quotedAt: string | null;
+  fetchedAt: string;
+};
 
 type Valuation = {
   shiller: {
@@ -49,28 +58,48 @@ type Valuation = {
 const PERIODS = ['1D', '1W', '1M', '3M', 'YTD', '1Y'];
 const REFRESH_MS = 60_000;
 
+// Canada is the shorter board: six sectors against the eleven on the US one.
+const BOARDS: [string, string][] = [
+  ['us', 'United States'],
+  ['ca', 'Canada'],
+];
+
+// CAPE runs monthly from 1881, so its windows are not the explorer's.
+const CAPE_SPANS: [string, number | null][] = [
+  ['10Y', 10],
+  ['25Y', 25],
+  ['50Y', 50],
+  ['All', null],
+];
+
 const CHART_URL = (id: string) => `/api/valuation/chart/${id}`;
 
-const FRAME: Frame = { w: 900, h: 300, pad: { top: 16, right: 18, bottom: 54, left: 52 } };
+// The bottom margin carries three rows: the ETF symbol, its move, and the
+// legend naming the benchmark rule.
+const FRAME: Frame = { w: 900, h: 318, pad: { top: 16, right: 18, bottom: 72, left: 66 } };
+const TICK_Y = FRAME.h - FRAME.pad.bottom + 20;
+const VALUE_Y = FRAME.h - FRAME.pad.bottom + 34;
 
 // narrower, because the panel shares a row with the sector table
-const CAPE_FRAME: Frame = { w: 620, h: 250, pad: { top: 14, right: 16, bottom: 44, left: 44 } };
+const CAPE_FRAME: Frame = { w: 620, h: 268, pad: { top: 14, right: 16, bottom: 62, left: 58 } };
 
 export default function SectorTrackerPage() {
   const [period, setPeriod] = useState('YTD');
-  const [data, setData] = useState<Sectors | null>(null);
+  const [board, setBoard] = useState('us');
+  const [loaded, setLoaded] = useState<Sectors | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [valuation, setValuation] = useState<Valuation | null>(null);
   const [peChart, setPeChart] = useState('sp-mag7-smid');
   const chartRef = useRef<SVGSVGElement | null>(null);
   const capeRef = useRef<SVGSVGElement | null>(null);
   const [capeHover, setCapeHover] = useState<number | null>(null);
+  const [capeSpan, setCapeSpan] = useState<number | null>(null);
 
   useEffect(() => {
     let live = true;
     const load = () =>
-      getJson<Sectors>('/api/markets/sectors')
-        .then((d) => live && (setData(d), setError(null)))
+      getJson<Sectors>(`/api/markets/sectors?board=${board}`)
+        .then((d) => live && (setLoaded(d), setError(null)))
         .catch((e) => live && setError(e.message));
     load();
     const timer = setInterval(load, REFRESH_MS);
@@ -78,7 +107,11 @@ export default function SectorTrackerPage() {
       live = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [board]);
+
+  // the board being left must not sit under the new board's heading while its
+  // rows are still on the way
+  const data = loaded && loaded.board.key === board ? loaded : null;
 
   // loaded once, not on the quote timer
   useEffect(() => {
@@ -123,17 +156,16 @@ export default function SectorTrackerPage() {
   const benchChange = data?.benchmark.changePct[period] ?? null;
 
   const cape = useMemo(() => {
-    const points = valuation?.shiller.observations ?? [];
+    const series = valuation?.shiller.observations ?? [];
+    const from = capeSpan == null ? null : toTime(yearsAgo(capeSpan));
+    const points = from == null ? series : series.filter((p) => toTime(p.d) >= from);
     if (points.length < 2) return null;
 
-    const average = valuation?.shiller.average ?? null;
     const values = points.map((p) => p.v);
-    const { lo, hi, ticks, step } = niceScale(
-      Math.min(...values, average ?? Infinity),
-      Math.max(...values, average ?? -Infinity),
-    );
+    const { lo, hi, ticks, step } = niceScale(Math.min(...values), Math.max(...values));
     const t0 = toTime(points[0].d);
     const t1 = toTime(points[points.length - 1].d);
+    const average = valuation?.shiller.average ?? null;
 
     return {
       points,
@@ -141,22 +173,38 @@ export default function SectorTrackerPage() {
       t1,
       ticks,
       digits: tickDigits(step ?? 1),
+      // the mean is over the whole series, so a short window can sit entirely
+      // above it. Drawn where it falls inside the window, rather than stretching
+      // the axis to reach a line the window has no room for.
+      mean: average != null && average >= lo && average <= hi ? average : null,
       x: (t: number) => CAPE_FRAME.pad.left + (plotW(CAPE_FRAME) * (t - t0)) / (t1 - t0 || 1),
       y: (v: number) => CAPE_FRAME.pad.top + plotH(CAPE_FRAME) * (1 - (v - lo) / (hi - lo)),
       years: yearTicks(t0, t1),
     };
-  }, [valuation]);
+  }, [valuation, capeSpan]);
 
   return (
     <main className="desk-page" style={T.page}>
       <header style={{ marginBottom: 16 }}>
         <h1 style={T.wordmark}>Sector &amp; Valuation</h1>
-        <p style={T.sub}>S&amp;P 500 GICS sector performance, one State Street ETF per sector</p>
+        <p style={T.sub}>Sector ETF performance against its benchmark, United States and Canada</p>
       </header>
 
       {error && <div style={{ ...card, color: COLOR.bad, marginBottom: 16 }}>{error}</div>}
 
       <div style={T.controls}>
+        {BOARDS.map(([key, name]) => (
+          <button
+            key={key}
+            style={{ ...T.control, ...(board === key ? T.controlOn : {}) }}
+            onClick={() => setBoard(key)}
+          >
+            {name}
+          </button>
+        ))}
+
+        <span style={T.divider} />
+
         {PERIODS.map((p) => (
           <button
             key={p}
@@ -174,12 +222,16 @@ export default function SectorTrackerPage() {
         <button
           style={T.control}
           onClick={() =>
-            chartRef.current && svgToPng(chartRef.current, `sectors-${period}.png`, COLOR.bg, FONT.body)
+            chartRef.current &&
+            svgToPng(chartRef.current, `sectors-${board}-${period}.png`, COLOR.bg, FONT.body)
           }
         >
           PNG
         </button>
-        <a style={{ ...T.control, ...T.controlPrimary }} href="/api/markets/csv?kind=sectors">
+        <a
+          style={{ ...T.control, ...T.controlPrimary }}
+          href={`/api/markets/csv?kind=sectors&board=${board}`}
+        >
           CSV
         </a>
       </div>
@@ -246,18 +298,12 @@ export default function SectorTrackerPage() {
                     fill={v < 0 ? COLOR.bad : COLOR.good}
                     opacity={0.85}
                   />
-                  <text
-                    x={cx}
-                    y={FRAME.h - 34}
-                    fill={COLOR.dim}
-                    fontSize="10"
-                    textAnchor="middle"
-                  >
+                  <text x={cx} y={TICK_Y} fill={COLOR.dim} fontSize="10" textAnchor="middle">
                     {r.symbol}
                   </text>
                   <text
                     x={cx}
-                    y={FRAME.h - 20}
+                    y={VALUE_Y}
                     fill={v == null ? COLOR.dim : v < 0 ? COLOR.bad : COLOR.good}
                     fontSize="9.5"
                     textAnchor="middle"
@@ -269,16 +315,26 @@ export default function SectorTrackerPage() {
             })}
 
             {chart.bench != null && (
-              <line
-                x1={FRAME.pad.left}
-                x2={FRAME.w - FRAME.pad.right}
-                y1={chart.y(chart.bench)}
-                y2={chart.y(chart.bench)}
-                stroke={COLOR.accent}
-                strokeWidth="1.4"
-                strokeDasharray="5 4"
-              />
+              <>
+                <line
+                  x1={FRAME.pad.left}
+                  x2={FRAME.w - FRAME.pad.right}
+                  y1={chart.y(chart.bench)}
+                  y2={chart.y(chart.bench)}
+                  stroke={COLOR.accent}
+                  strokeWidth="1.4"
+                  strokeDasharray="5 4"
+                />
+                <LegendRule
+                  frame={FRAME}
+                  color={COLOR.accent}
+                  dash="5 4"
+                  label={`${data?.benchmark.label ?? 'Benchmark'} ${fmtPct(chart.bench)}%`}
+                />
+              </>
             )}
+
+            <AxisLabel frame={FRAME} text={`Percent change, ${period}`} />
           </svg>
         )}
       </section>
@@ -296,7 +352,9 @@ export default function SectorTrackerPage() {
               <tr>
                 <th style={T.th}>Sector</th>
                 <th style={T.th}>ETF</th>
-                <th style={{ ...T.th, textAlign: 'right' }}>Last</th>
+                <th style={{ ...T.th, textAlign: 'right' }}>
+                  {data ? `Last ${data.board.currency}` : 'Last'}
+                </th>
                 {PERIODS.map((p) => (
                   <th
                     key={p}
@@ -414,25 +472,42 @@ export default function SectorTrackerPage() {
             </tbody>
           </table>
 
+          {/* no window to pick when the series did not load at all */}
+          {!valuation?.shiller.error && (
+            <div style={{ ...T.controls, marginTop: 12 }}>
+              {CAPE_SPANS.map(([label, years]) => (
+                <button
+                  key={label}
+                  style={{ ...T.control, ...(capeSpan === years ? T.controlOn : {}) }}
+                  onClick={() => setCapeSpan(years)}
+                >
+                  {label}
+                </button>
+              ))}
+              <div style={T.spacer} />
+              <button
+                style={{ ...T.control, ...(cape ? {} : T.controlOff) }}
+                onClick={() =>
+                  capeRef.current &&
+                  svgToPng(
+                    capeRef.current,
+                    `shiller-cape-${capeFile(capeSpan)}.png`,
+                    COLOR.bg,
+                    FONT.body,
+                  )
+                }
+              >
+                PNG
+              </button>
+            </div>
+          )}
+
           {!cape ? (
             <p style={{ ...T.desc, margin: '14px 0 0' }}>
               {valuation?.shiller.error ? `Series unavailable from ${valuation.shiller.source}` : 'Loading'}
             </p>
           ) : (
             <>
-              <div style={T.controls}>
-                <div style={T.spacer} />
-                <button
-                  style={T.control}
-                  onClick={() =>
-                    capeRef.current &&
-                    svgToPng(capeRef.current, 'shiller-cape.png', COLOR.bg, FONT.body)
-                  }
-                >
-                  PNG
-                </button>
-              </div>
-
               <svg
                 ref={capeRef}
                 viewBox={`0 0 ${CAPE_FRAME.w} ${CAPE_FRAME.h}`}
@@ -444,21 +519,33 @@ export default function SectorTrackerPage() {
 
                 <XLabels
                   frame={CAPE_FRAME}
+                  offset={28}
                   items={cape.years.map((t) => ({
                     at: cape.x(t),
                     label: String(new Date(t).getUTCFullYear()),
                   }))}
                 />
 
-                {valuation?.shiller.average != null && (
-                  <line
-                    x1={CAPE_FRAME.pad.left}
-                    x2={CAPE_FRAME.w - CAPE_FRAME.pad.right}
-                    y1={cape.y(valuation.shiller.average)}
-                    y2={cape.y(valuation.shiller.average)}
-                    stroke={COLOR.line}
-                    strokeDasharray="5 3"
-                  />
+                <AxisLabel frame={CAPE_FRAME} text="Shiller PE (CAPE)" />
+
+                {cape.mean != null && (
+                  <>
+                    <line
+                      x1={CAPE_FRAME.pad.left}
+                      x2={CAPE_FRAME.w - CAPE_FRAME.pad.right}
+                      y1={cape.y(cape.mean)}
+                      y2={cape.y(cape.mean)}
+                      stroke={COLOR.line}
+                      strokeDasharray="5 3"
+                    />
+                    <LegendRule
+                      frame={CAPE_FRAME}
+                      color={COLOR.line}
+                      dash="5 3"
+                      label={`All-time mean ${cape.mean.toFixed(1)}`}
+                      offset={8}
+                    />
+                  </>
                 )}
 
                 <SeriesLine points={cape.points} color={COLOR.accent} x={cape.x} y={cape.y} width={1.5} />
@@ -580,6 +667,8 @@ const monthLabel = (period?: string | null) =>
         timeZone: 'UTC',
       })
     : 'n/a';
+
+const capeFile = (years: number | null) => (years == null ? 'all' : `${years}y`);
 
 const fmtPct = (v: number | null | undefined) =>
   v == null ? 'n/a' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`;

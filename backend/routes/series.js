@@ -153,9 +153,18 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Long format on purpose. Series here run at different frequencies, and a wide
-// grid would need a value on every row for every column, which means inventing
-// the ones that never printed.
+// Everything the long format carried in columns of its own, in the one row a
+// wide grid has for it. The id is what reproduces the pull.
+const column = (s) =>
+  `${s.country} ${s.label}${s.units ? `, ${s.units}` : ''} [${s.source} ${s.id}]`;
+
+// Wide: one column per series, side by side, rather than a second series
+// continuing underneath the first in the same column.
+//
+// The date column is the union of the periods that actually printed, so a
+// series running at a different cadence leaves a cell empty on a date it has no
+// print for. Nothing is carried forward or interpolated to fill one: empty is
+// what n/a looks like in a spreadsheet.
 router.get('/csv', async (req, res) => {
   const asked = parseRequest(req.query);
   if (asked.error) return res.status(400).json({ error: asked.error });
@@ -163,11 +172,12 @@ router.get('/csv', async (req, res) => {
   try {
     const series = await seriesFor(asked.ids, asked.start);
 
-    const rows = ['series_id,label,country,source,units,date,value'];
-    for (const s of series) {
-      for (const o of s.observations) {
-        rows.push(row([s.id, s.label, s.country, s.source, s.units, o.d, o.v]));
-      }
+    const dates = [...new Set(series.flatMap((s) => s.observations.map((o) => o.d)))].sort();
+    const values = series.map((s) => new Map(s.observations.map((o) => [o.d, o.v])));
+
+    const rows = [row(['date', ...series.map(column)])];
+    for (const d of dates) {
+      rows.push(row([d, ...values.map((v) => (v.has(d) ? v.get(d) : null))]));
     }
 
     res.setHeader('Content-Type', 'text/csv');

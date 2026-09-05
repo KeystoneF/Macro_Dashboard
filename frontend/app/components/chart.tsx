@@ -81,6 +81,61 @@ export function XLabels({
   );
 }
 
+// Vertical axis title, rotated up the left gutter. A saved PNG carries the svg
+// and nothing around it, so a chart that names its axis only in the panel
+// heading exports with an unlabelled scale.
+export function AxisLabel({ frame, text }: { frame: Frame; text: string }) {
+  const x = 12;
+  const y = frame.pad.top + plotH(frame) / 2;
+  return (
+    <text
+      x={x}
+      y={y}
+      fill={COLOR.dim}
+      fontSize="10"
+      textAnchor="middle"
+      transform={`rotate(-90 ${x} ${y})`}
+    >
+      {text}
+    </text>
+  );
+}
+
+// Names a rule the plot cannot explain on its own, in the bottom margin. Same
+// reason: a dashed line described only in the panel copy exports as a dashed
+// line nobody can read.
+export function LegendRule({
+  frame,
+  color,
+  dash,
+  label,
+  offset = 10,
+}: {
+  frame: Frame;
+  color: string;
+  dash?: string;
+  label: string;
+  offset?: number;
+}) {
+  const y = frame.h - offset;
+  return (
+    <g>
+      <line
+        x1={frame.pad.left}
+        x2={frame.pad.left + 18}
+        y1={y - 3.5}
+        y2={y - 3.5}
+        stroke={color}
+        strokeWidth="1.4"
+        strokeDasharray={dash}
+      />
+      <text x={frame.pad.left + 24} y={y} fill={COLOR.dim} fontSize="10">
+        {label}
+      </text>
+    </g>
+  );
+}
+
 export function HoverRule({ frame, x }: { frame: Frame; x: number }) {
   return (
     <line
