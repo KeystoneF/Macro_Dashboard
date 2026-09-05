@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { YARDENI, YARDENI_PAGE, chart } = require('../valuation');
-const { SHILLER, load: loadShiller } = require('../shiller');
+const { SHILLER, load: loadShiller, diagnose: diagnoseShiller } = require('../shiller');
 const { USER_AGENT } = require('../feeds');
-const { fail, redact } = require('../redact');
+const { fail, redact, describe } = require('../redact');
 
 const CACHE_MS = 10 * 60_000;
 
@@ -48,7 +48,7 @@ function load(entry) {
 
 // Warmed at boot, because the workbook is 1.6MB and the parse is the slowest
 // thing on this module.
-loadShiller().catch((err) => console.error('shiller warm failed:', redact(err.message)));
+loadShiller().catch((err) => console.error('shiller warm failed:', redact(describe(err))));
 
 router.get('/', async (req, res) => {
   let shiller = { observations: [], value: null, average: null, asOf: null, from: null, updated: null };
@@ -59,7 +59,7 @@ router.get('/', async (req, res) => {
     shiller = series;
   } catch (err) {
     // rows stay at n/a and the panel still renders
-    error = redact(err.message);
+    error = redact(describe(err));
   }
 
   res.json({
@@ -71,6 +71,12 @@ router.get('/', async (req, res) => {
     },
     fetchedAt: new Date().toISOString(),
   });
+});
+
+// every step of a fresh shillerdata.com download, for a failure that only
+// happens off a datacentre ip
+router.get('/shiller/diag', async (req, res) => {
+  res.json(await diagnoseShiller());
 });
 
 router.get('/chart/:id', async (req, res) => {

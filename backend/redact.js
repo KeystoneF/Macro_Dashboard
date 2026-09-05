@@ -28,13 +28,22 @@ function redact(text) {
 
 // A driver can raise a connection failure with an empty message and the reason
 // only in .code, so reading .message alone answers with {"error":""} and an
-// analyst is told nothing at all while the database is down.
+// analyst is told nothing at all while the database is down. fetch does the
+// same thing differently: every network failure is the message "fetch failed"
+// and the reason is one or two .cause levels down, so the chain is walked.
 function describe(err) {
   if (!err) return 'unknown error';
-  const message = typeof err.message === 'string' ? err.message.trim() : '';
-  if (message) return message;
-  if (err.code) return String(err.code);
-  return String(err);
+
+  const parts = [];
+  for (let e = err, depth = 0; e && depth < 4; e = e.cause, depth++) {
+    const code = e.code ? String(e.code) : '';
+    let part = typeof e.message === 'string' ? e.message.trim() : '';
+    if (!part) part = code || String(e);
+    else if (code && !part.includes(code)) part += ` (${code})`;
+    if (part && !parts.includes(part)) parts.push(part);
+  }
+
+  return parts.join(': ') || 'unknown error';
 }
 
 // The single exit for a failed upstream call: log it, answer 502, leak nothing.
