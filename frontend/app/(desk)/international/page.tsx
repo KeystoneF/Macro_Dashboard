@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import * as T from '../../theme';
-import { COLOR, FONT, PEER, card } from '../../theme';
+import { COLOR, FONT, PEER, PLOT, RADIUS, card } from '../../theme';
 import { niceScale, tickDigits } from '../../lib/scale';
 import { getJson } from '../../lib/api';
 import { svgToPng } from '../../lib/png';
@@ -20,40 +20,58 @@ import {
   type Frame,
 } from '../../components/chart';
 import SeriesLine from '../../components/SeriesLine';
+import OecdSearch, { measureId, type Measure } from '../../components/OecdSearch';
 
 type Area = { code: string; name: string; observations: Obs[] };
 
-type MetricData = {
+type MeasureData = {
   metric: string;
+  flow?: string;
+  key?: string;
   label: string;
-  units: string;
-  freq: string;
+  units: string | null;
+  freq: string | null;
+  selection?: { dim: string; value: string }[];
+  mixedUnits?: string[] | null;
   areas: Area[];
   source: string;
+  start: string;
 };
 
 type Cell = { value: number; period: string } | null;
-type Row = { code: string; name: string; gdp: Cell; cpi: Cell; unemployment: Cell };
+type Row = {
+  code: string;
+  name: string;
+  grouping: boolean;
+  gdp: Cell;
+  cpi: Cell;
+  unemployment: Cell;
+};
+
+type MetricKey = 'gdp' | 'cpi' | 'unemployment';
 
 type Snapshot = {
-  metrics: { key: string; label: string; units: string }[];
+  metrics: { key: MetricKey; label: string; units: string }[];
   rows: Row[];
   source: string;
 };
 
-const METRICS: [string, string][] = [
+const METRICS: [MetricKey, string][] = [
   ['gdp', 'Real GDP'],
   ['cpi', 'CPI'],
   ['unemployment', 'Unemployment'],
 ];
 
-// Canada and the US carry the desk colours. The peers used to share one grey,
-// which made a chart with four of them on it unreadable, so each now has its
-// own hue from the peer set in theme.ts.
-const AREA_COLOR: Record<string, string> = {
+// Canada, the United States and the OECD total hold the desk colours wherever
+// they appear. Every other country takes the next free colour from the peer
+// set, and the five G7 peers keep the hues they have always had.
+const ANCHOR: Record<string, string> = {
   CAN: COLOR.ca,
   USA: COLOR.us,
   OECD: COLOR.accent,
+};
+
+const PREFERRED: Record<string, string> = {
   GBR: PEER.violet,
   DEU: PEER.amber,
   FRA: PEER.blue,
@@ -61,24 +79,39 @@ const AREA_COLOR: Record<string, string> = {
   JPN: PEER.green,
 };
 
+const POOL = [PEER.violet, PEER.amber, PEER.blue, PEER.rose, PEER.green, PLOT[3], PLOT[4]];
+
+const G7_PEERS = ['GBR', 'DEU', 'FRA', 'ITA', 'JPN'];
 const DEFAULT_ON = ['CAN', 'USA', 'OECD'];
 
 const FRAME: Frame = { w: 900, h: 300, pad: { top: 14, right: 16, bottom: 30, left: 46 } };
 
+// A period more than a year behind is a series that has stopped, not a fresh
+// print. Japan's CPI in this dataset stops in 2021 while every peer is current.
+const STALE_MS = 400 * 864e5;
+
 export default function InternationalPage() {
-  const [metric, setMetric] = useState('gdp');
-  const [loaded, setLoaded] = useState<MetricData | null>(null);
+  const [metric, setMetric] = useState<MetricKey>('gdp');
+  const [found, setFound] = useState<Measure | null>(null);
+  const [loaded, setLoaded] = useState<MeasureData | null>(null);
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [on, setOn] = useState<string[]>(DEFAULT_ON);
+  const [sortBy, setSortBy] = useState<MetricKey>('gdp');
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   const chartRef = useRef<SVGSVGElement | null>(null);
   // fixed at mount: staleness must not shift under a re-render
   const [now] = useState(() => Date.now());
 
+  // what the chart is asking for, and what its export links repeat
+  const query = found
+    ? `flow=${encodeURIComponent(found.flow)}&key=${encodeURIComponent(found.key)}`
+    : `metric=${metric}`;
+  const wanted = found ? measureId(found.flow, found.key) : metric;
+
   useEffect(() => {
     let live = true;
-    getJson<MetricData>(`/api/international?metric=${metric}`)
+    getJson<MeasureData>(`/api/international?${query}`)
       .then((d) => {
         if (!live) return;
         setError(null);
@@ -88,17 +121,45 @@ export default function InternationalPage() {
     return () => {
       live = false;
     };
-  }, [metric]);
+  }, [query]);
 
-  // the chart clears itself on a metric switch by ignoring the previous
-  // response, rather than by blanking state from inside the effect
-  const data = loaded?.metric === metric ? loaded : null;
+  // the chart clears itself on a switch by ignoring the previous response,
+  // rather than by blanking state from inside the effect
+  const data =
+    loaded && (loaded.flow ? measureId(loaded.flow, loaded.key ?? '') : loaded.metric) === wanted
+      ? loaded
+      : null;
 
   useEffect(() => {
     getJson<Snapshot>('/api/international/snapshot')
       .then(setSnap)
       .catch(() => setSnap(null));
   }, []);
+
+  // Assigned in the order countries were lit, so a line keeps its colour while
+  // it is on the chart. The anchors are never in the pool.
+  const colour = useMemo(() => {
+    const out: Record<string, string> = {};
+    const taken = new Set<string>();
+
+    for (const code of on) if (ANCHOR[code]) out[code] = ANCHOR[code];
+    for (const code of on) {
+      const want = PREFERRED[code];
+      if (out[code] || !want || taken.has(want)) continue;
+      out[code] = want;
+      taken.add(want);
+    }
+    for (const code of on) {
+      if (out[code]) continue;
+      const free = POOL.find((c) => !taken.has(c));
+      if (!free) continue;
+      out[code] = free;
+      taken.add(free);
+    }
+    return out;
+  }, [on]);
+
+  const full = on.filter((code) => !ANCHOR[code]).length >= POOL.length;
 
   const scale = useMemo(() => {
     if (!data) return null;
@@ -129,18 +190,40 @@ export default function InternationalPage() {
   const toggle = (code: string) =>
     setOn((s) => (s.includes(code) ? s.filter((c) => c !== code) : [...s, code]));
 
-  const metricLabel = METRICS.find(([k]) => k === metric)?.[1] ?? metric;
+  const add = (code: string) => setOn((s) => (s.includes(code) || !code ? s : [...s, code]));
+
+  const show = useCallback((m: Measure) => {
+    setFound(m);
+    setHover(null);
+  }, []);
 
   const breaks = useMemo(
     () => (scale ? scale.shown.reduce((n, a) => n + breakCount(a.observations), 0) : 0),
     [scale],
   );
 
+  // Every country the dataset holds, minus the ones already on the chart. The
+  // groupings OECD publishes alongside them, EA20 and G7 and the rest, are
+  // series in their own right and stay in the list.
+  const addable = useMemo(
+    () =>
+      (data?.areas ?? [])
+        .filter((a) => !on.includes(a.code) && a.observations.length)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [data, on],
+  );
+
+  const ranked = useMemo(() => rankRows(snap, sortBy), [snap, sortBy]);
+
+  const fileName = found ? found.flow.split(',')[1] : metric;
+
   return (
     <main className="desk-page" style={T.page}>
       <header style={{ marginBottom: 16 }}>
         <h1 style={T.wordmark}>International</h1>
-        <p style={T.sub}>Canada and the United States against G7 peers and the OECD total</p>
+        <p style={T.sub}>
+          Canada and the United States against every country the OECD publishes
+        </p>
       </header>
 
       {error && <div style={{ ...card, color: COLOR.bad, marginBottom: 16 }}>{error}</div>}
@@ -149,69 +232,100 @@ export default function InternationalPage() {
         {METRICS.map(([key, label]) => (
           <button
             key={key}
-            style={{ ...T.control, ...(metric === key ? T.controlOn : {}) }}
-            onClick={() => setMetric(key)}
+            style={{ ...T.control, ...(!found && metric === key ? T.controlOn : {}) }}
+            onClick={() => {
+              setMetric(key);
+              setSortBy(key);
+              setFound(null);
+            }}
           >
             {label}
           </button>
         ))}
 
-        <span style={T.divider} />
-
-        {(data?.areas ?? []).map((a) => {
-          const lit = on.includes(a.code);
-          return (
-            <button
-              key={a.code}
-              onClick={() => toggle(a.code)}
-              style={{
-                ...T.control,
-                ...S.areaButton,
-                ...(lit
-                  ? { color: COLOR.ink, borderColor: AREA_COLOR[a.code], background: COLOR.panel2 }
-                  : {}),
-              }}
-            >
-              {/* the swatch stays on when the line is off, so the toggle still
-                  says which colour it controls */}
-              <span
-                style={{
-                  ...S.swatch,
-                  background: AREA_COLOR[a.code],
-                  opacity: lit ? 1 : 0.45,
-                }}
-              />
-              {a.name}
+        {found && (
+          <span style={{ ...S.chip, borderColor: COLOR.accent }}>
+            {found.name}
+            <button style={S.chipX} onClick={() => setFound(null)} aria-label="Back to the three">
+              &times;
             </button>
-          );
-        })}
+          </span>
+        )}
 
         <div style={T.spacer} />
         <button
           style={T.control}
           onClick={() =>
             chartRef.current &&
-            svgToPng(chartRef.current, `international-${metric}.png`, COLOR.bg, FONT.body)
+            svgToPng(chartRef.current, `international-${fileName}.png`, COLOR.bg, FONT.body)
           }
         >
           PNG
         </button>
-        <a
-          style={{ ...T.control, ...T.controlPrimary }}
-          href={`/api/international/csv?metric=${metric}`}
-        >
+        <a style={{ ...T.control, ...T.controlPrimary }} href={`/api/international/csv?${query}`}>
           CSV
         </a>
+      </div>
+
+      <div style={T.controls}>
+        {on.map((code) => {
+          const area = data?.areas.find((a) => a.code === code);
+          const lit = colour[code];
+          return (
+            <span
+              key={code}
+              style={{ ...S.chip, borderColor: lit ?? COLOR.line, opacity: area ? 1 : 0.5 }}
+            >
+              <span style={{ ...S.swatch, background: lit ?? COLOR.line }} />
+              {area ? area.name : code}
+              {/* a country the measure does not cover keeps its chip and says
+                  so, rather than disappearing when the measure changes */}
+              {data && !area && <span style={S.noData}>no data</span>}
+              <button style={S.chipX} onClick={() => toggle(code)} aria-label={`Remove ${code}`}>
+                &times;
+              </button>
+            </span>
+          );
+        })}
+
+        <select
+          value=""
+          onChange={(e) => add(e.target.value)}
+          style={{ ...T.input, ...(full ? T.controlOff : {}) }}
+          title={full ? 'Seven peers at a time, so every line keeps its own colour' : undefined}
+        >
+          <option value="">Add a country</option>
+          {addable.map((a) => (
+            <option key={a.code} value={a.code}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+
+        <button
+          style={{ ...T.control, ...(full ? T.controlOff : {}) }}
+          onClick={() => setOn((s) => [...s, ...G7_PEERS.filter((c) => !s.includes(c))])}
+        >
+          Add G7
+        </button>
       </div>
 
       <section style={{ ...card, marginBottom: 16 }}>
         <div style={T.cardHead}>
           <div>
-            <h2 style={T.h2}>{data ? data.label : metricLabel}</h2>
+            <h2 style={T.h2}>{data ? data.label : 'Loading'}</h2>
             <p style={{ ...T.desc, marginBottom: 0 }}>
-              {data ? `${data.units}, ${data.freq.toLowerCase()}. ${data.source}` : 'Loading'}
-              {breaks > 0 && `. ${breaks} break${breaks > 1 ? 's' : ''} where a period did not print`}
+              {data ? measureNote(data) : 'Loading'}
+              {breaks > 0 &&
+                `. ${breaks} break${breaks > 1 ? 's' : ''} where a period did not print`}
             </p>
+            {data?.mixedUnits && (
+              // countries reporting in their own units are not one comparison,
+              // whatever the chart makes it look like
+              <p style={{ ...T.desc, marginBottom: 0, color: COLOR.ca }}>
+                Countries report this in different units: {data.mixedUnits.join(', ')}
+              </p>
+            )}
           </div>
           {hover != null && scale && (
             <div style={T.readout}>
@@ -219,7 +333,7 @@ export default function InternationalPage() {
               {scale.shown.map((a) => {
                 const at = nearest(a.observations, hover);
                 return (
-                  <span key={a.code} style={{ color: AREA_COLOR[a.code] }}>
+                  <span key={a.code} style={{ color: colour[a.code] }}>
                     {a.code} {at ? at.v.toFixed(1) : 'n/a'}
                   </span>
                 );
@@ -229,9 +343,7 @@ export default function InternationalPage() {
         </div>
 
         {!scale ? (
-          <p style={{ fontSize: 12, color: COLOR.dim }}>
-            {data ? 'No countries selected' : 'Loading'}
-          </p>
+          <p style={S.quiet}>{data ? 'No countries selected' : 'Loading'}</p>
         ) : (
           <svg
             ref={chartRef}
@@ -256,10 +368,10 @@ export default function InternationalPage() {
               <SeriesLine
                 key={a.code}
                 points={a.observations}
-                color={AREA_COLOR[a.code]}
+                color={colour[a.code]}
                 x={scale.x}
                 y={scale.y}
-                width={DEFAULT_ON.includes(a.code) ? 2 : 1.5}
+                width={ANCHOR[a.code] ? 2 : 1.5}
                 dash={a.code === 'OECD' ? '5 3' : undefined}
               />
             ))}
@@ -269,52 +381,105 @@ export default function InternationalPage() {
         )}
       </section>
 
-      <section style={card}>
-        <h2 style={T.h2}>Peer snapshot</h2>
-        <p style={T.desc}>
-          Each country&apos;s latest figure, with the period beside it since countries
-          report on different dates.
-        </p>
-        <table style={T.table}>
-          <thead>
-            <tr>
-              <th style={T.th}>Country</th>
-              {(snap?.metrics ?? []).map((m) => (
-                <th key={m.key} style={{ ...T.th, textAlign: 'right' }}>
-                  {m.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {(snap?.rows ?? []).map((r) => (
-              <tr key={r.code}>
-                <td style={{ ...T.td, color: DEFAULT_ON.includes(r.code) ? COLOR.ink : COLOR.dim }}>
-                  <span style={{ ...S.swatch, background: AREA_COLOR[r.code], marginRight: 8 }} />
-                  {r.name}
-                </td>
+      <section style={{ ...card, marginBottom: 16 }}>
+        <div style={T.cardHead}>
+          <div>
+            <h2 style={T.h2}>Peer snapshot</h2>
+            <p style={{ ...T.desc, marginBottom: 0 }}>
+              Latest figure per country, with the period beside it since countries report on
+              different dates. Click a column to rank by it.
+            </p>
+          </div>
+          <span style={{ fontSize: 11, color: COLOR.dim }}>
+            {snap ? `${snap.rows.filter((r) => !r.grouping).length} countries` : ''}
+          </span>
+        </div>
+
+        <div style={{ maxHeight: 420, overflowY: 'auto', ...T.scrollX }}>
+          <table style={{ ...T.table, minWidth: 460 }}>
+            <thead>
+              <tr>
+                <th style={{ ...S.stickyTh, width: 38 }}>#</th>
+                <th style={S.stickyTh}>Country</th>
                 {(snap?.metrics ?? []).map((m) => (
-                  <Value key={m.key} cell={r[m.key as 'gdp' | 'cpi' | 'unemployment']} now={now} />
+                  <th
+                    key={m.key}
+                    style={{
+                      ...S.stickyTh,
+                      textAlign: 'right',
+                      cursor: 'pointer',
+                      color: sortBy === m.key ? COLOR.accent : COLOR.dim,
+                    }}
+                    onClick={() => setSortBy(m.key)}
+                  >
+                    {m.label}
+                  </th>
                 ))}
               </tr>
-            ))}
-            {!snap && (
-              <tr>
-                <td style={{ ...T.td, color: COLOR.dim }} colSpan={4}>
-                  Loading
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {ranked.map((r) => (
+                <tr key={r.code}>
+                  {/* a grouping is not a country and takes no rank, which is
+                      what the mockup's n/a rank row was saying */}
+                  <td style={{ ...T.td, color: COLOR.dim }}>{r.rank ?? 'n/a'}</td>
+                  <td style={{ ...T.td, color: on.includes(r.code) ? COLOR.ink : COLOR.dim }}>
+                    {colour[r.code] && (
+                      <span style={{ ...S.swatch, background: colour[r.code], marginRight: 8 }} />
+                    )}
+                    {r.name}
+                  </td>
+                  {(snap?.metrics ?? []).map((m) => (
+                    <Value key={m.key} cell={r[m.key]} now={now} />
+                  ))}
+                </tr>
+              ))}
+              {!snap && (
+                <tr>
+                  <td style={{ ...T.td, color: COLOR.dim }} colSpan={5}>
+                    Loading
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
+
+      <OecdSearch onShow={show} current={found ? measureId(found.flow, found.key) : null} />
     </main>
   );
 }
 
-// A period more than a year behind is a series that has stopped, not a fresh print.
-// Flagging it beats letting a 2021 figure sit in the table looking current.
-const STALE_MS = 400 * 864e5;
+// Countries first and ranked on the chosen measure, groupings after them with no
+// rank, anything that did not report at the bottom of its own half.
+function rankRows(snap: Snapshot | null, sortBy: MetricKey): (Row & { rank: number | null })[] {
+  if (!snap) return [];
+
+  const value = (r: Row) => r[sortBy]?.value ?? null;
+  const order = (a: Row, b: Row) => {
+    const av = value(a);
+    const bv = value(b);
+    if (av == null && bv == null) return a.name.localeCompare(b.name);
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return bv - av;
+  };
+
+  const countries = snap.rows.filter((r) => !r.grouping).sort(order);
+  const groupings = snap.rows.filter((r) => r.grouping).sort(order);
+
+  return [
+    ...countries.map((r, i) => ({ ...r, rank: value(r) == null ? null : i + 1 })),
+    ...groupings.map((r) => ({ ...r, rank: null })),
+  ];
+}
+
+function measureNote(data: MeasureData) {
+  const parts = [data.units, data.freq ? data.freq.toLowerCase() : null].filter(Boolean);
+  const picked = (data.selection ?? []).map((s) => s.value).join(', ');
+  return [parts.join(', '), picked, data.source].filter(Boolean).join('. ');
+}
 
 function Value({ cell, now }: { cell: Cell; now: number }) {
   if (!cell) return <td style={{ ...T.td, textAlign: 'right', color: COLOR.dim }}>n/a</td>;
@@ -330,6 +495,30 @@ function Value({ cell, now }: { cell: Cell; now: number }) {
 }
 
 const S: Record<string, CSSProperties> = {
-  areaButton: { display: 'inline-flex', alignItems: 'center', gap: 7 },
+  quiet: { fontSize: 12, color: COLOR.dim },
   swatch: { width: 9, height: 2, display: 'inline-block', flexShrink: 0 },
+  noData: { fontSize: 10, color: COLOR.dim },
+  chip: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 7,
+    fontSize: 12,
+    padding: '4px 8px',
+    borderRadius: RADIUS.control,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    color: COLOR.ink,
+    background: COLOR.panel,
+  },
+  chipX: {
+    borderWidth: 0,
+    borderStyle: 'solid',
+    background: 'transparent',
+    color: COLOR.dim,
+    cursor: 'pointer',
+    fontSize: 14,
+    lineHeight: 1,
+    padding: 0,
+  },
+  stickyTh: { ...T.th, position: 'sticky', top: 0, zIndex: 1, background: COLOR.panel },
 };

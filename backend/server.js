@@ -77,6 +77,7 @@ app.use(cookieParser());
 app.use('/api/auth', require('./routes/auth'));
 
 // everything below needs one
+app.use('/api/brief', requireAuth, require('./routes/brief'));
 app.use('/api/yields', requireAuth, require('./routes/yields'));
 app.use('/api/series', requireAuth, require('./routes/series'));
 app.use('/api/discover', requireAuth, require('./routes/discover'));

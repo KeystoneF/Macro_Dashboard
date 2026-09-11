@@ -23,7 +23,8 @@ export const MODULES: Module[] = [
     title: 'Daily / Weekly / Monthly Brief',
     group: 'Daily Workflow',
     mockup: '1-daily-brief.html',
-    state: 'mockup',
+    state: 'live',
+    note: 'Ranking by model is not wired, so the feed is in publication order.',
   },
   {
     num: '02',

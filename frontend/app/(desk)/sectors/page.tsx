@@ -6,6 +6,7 @@ import * as T from '../../theme';
 import { COLOR, FONT, RADIUS, card } from '../../theme';
 import { niceScale, tickDigits } from '../../lib/scale';
 import { getJson } from '../../lib/api';
+import { fmtPct, pctColor } from '../../lib/format';
 import { svgToPng } from '../../lib/png';
 import {
   plotH,
@@ -695,12 +696,6 @@ const monthLabel = (period?: string | null) =>
     : 'n/a';
 
 const capeFile = (years: number | null) => (years == null ? 'all' : `${years}y`);
-
-const fmtPct = (v: number | null | undefined) =>
-  v == null ? 'n/a' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`;
-
-const pctColor = (v: number | null | undefined) =>
-  v == null ? COLOR.dim : v < 0 ? COLOR.bad : COLOR.good;
 
 const S: Record<string, CSSProperties> = {
   grid: T.splitWide,

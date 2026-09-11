@@ -6,6 +6,7 @@ import * as T from '../../theme';
 import { COLOR, FONT, card } from '../../theme';
 import { niceScale, tickDigits } from '../../lib/scale';
 import { getJson } from '../../lib/api';
+import { age, fmtPct, fmtPrice, minutesBehind, pctColor } from '../../lib/format';
 import { svgToPng } from '../../lib/png';
 import { toTime, yearTicks, type Obs } from '../../lib/time';
 import { Gridlines, HoverRule, XLabels, timeAt, plotW, plotH, type Frame } from '../../components/chart';
@@ -343,7 +344,7 @@ function BoardTable({
                       style={{ ...T.td, ...S.age, textAlign: 'right' }}
                       title={r.quotedAt ? `Last print ${r.quotedAt.slice(11, 19)} UTC, from FMP` : undefined}
                     >
-                      {age(r)}
+                      {age(r.quotedAt)}
                     </td>
                     <td style={{ ...T.td, textAlign: 'right', color: pctColor(chg) }}>
                       {fmtPct(chg)}
@@ -374,15 +375,6 @@ function dayBand(r: Row): number[] {
   const out = [r.dayLow, r.price, r.dayHigh].filter((v): v is number => v != null);
   return out.length === 3 ? out : [];
 }
-
-const fmtPrice = (v: number | null, decimals: number) =>
-  v == null ? 'n/a' : v.toLocaleString('en-CA', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-
-const fmtPct = (v: number | null | undefined) =>
-  v == null ? 'n/a' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`;
-
-const pctColor = (v: number | null | undefined) =>
-  v == null ? COLOR.dim : v < 0 ? COLOR.bad : COLOR.good;
 
 const priceUnit = (r: Row) => (r.unit ? `${r.currency} ${r.unit}` : r.currency);
 
@@ -426,22 +418,8 @@ function dateLabels(points: Obs[], x: (t: number) => number) {
   return out;
 }
 
-// How far behind the clock this instrument's last print is. FMP delays some
-// and not others, and the number is the point: gold and silver run about ten
-// minutes back on this plan while the majors are seconds back, and wheat and
-// corn are hours back whenever their pit is shut.
-const minutesBehind = (r: Row) =>
-  r.quotedAt == null ? null : Math.floor((Date.now() - Date.parse(r.quotedAt)) / 60_000);
-
-function age(r: Row): string {
-  const mins = minutesBehind(r);
-  if (mins == null) return 'n/a';
-  if (mins < 1) return 'now';
-  return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h`;
-}
-
 function quoteAge(r: Row): string {
-  const mins = minutesBehind(r);
+  const mins = minutesBehind(r.quotedAt);
   if (mins == null) return '';
   if (mins < 1) return ', quoted just now';
   return `, quoted ${mins} min ago`;

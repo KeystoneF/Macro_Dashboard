@@ -103,7 +103,7 @@ async function bocObs(id, start) {
 }
 
 // FRED writes "." for a non-trading day, so those rows are dropped rather than zeroed
-async function fredObs(id, start) {
+async function fredObs(id, start, units) {
   const key = process.env.FRED_API_KEY;
   if (!key) throw new Error('FRED_API_KEY missing');
 
@@ -114,6 +114,10 @@ async function fredObs(id, start) {
     observation_start: start,
     sort_order: 'asc',
   });
+
+  // FRED publishes the year over year change itself, so a caller asking for it
+  // gets the provider's figure rather than one worked out here
+  if (units) params.set('units', units);
 
   const r = await fredFetch(`${FRED_BASE}/series/observations?${params}`);
   if (!r.ok) throw new Error(`fred ${id} ${r.status}`);
@@ -207,7 +211,7 @@ async function statcanObs(meta, start) {
 function observations(meta, start) {
   if (meta.src === 'boc') return bocObs(meta.id, start);
   if (meta.src === 'statcan') return statcanObs(meta, start);
-  return fredObs(meta.id, start);
+  return fredObs(meta.id, start, meta.fredUnits);
 }
 
 // Date of the last print, which is what tells an analyst whether a series has

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { FX, COMMODITIES, SECTOR_SYMBOLS, sectorBoard, PERIODS } = require('../instruments');
+const { FX, COMMODITIES, BRIEF, SECTOR_SYMBOLS, sectorBoard, PERIODS } = require('../instruments');
 const { fail } = require('../redact');
 const { row } = require('../csv');
 
@@ -136,6 +136,14 @@ router.get('/fx', async (req, res) => {
 router.get('/commodities', async (req, res) => {
   try {
     res.json(asOfBody(await instrumentRows(COMMODITIES, wantsFresh(req))));
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.get('/brief', async (req, res) => {
+  try {
+    res.json(asOfBody(await instrumentRows(BRIEF, wantsFresh(req))));
   } catch (err) {
     fail(res, err);
   }

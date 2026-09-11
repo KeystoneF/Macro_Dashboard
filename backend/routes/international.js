@@ -2,43 +2,31 @@ const express = require('express');
 const router = express.Router();
 const { fail } = require('../redact');
 const { row } = require('../csv');
+const {
+  search,
+  flowByRef,
+  flowDetail,
+  dsdDimensions,
+  seriesFor,
+  budget,
+  AREA_IDS,
+} = require('../oecd');
 
-const SDMX = 'https://sdmx.oecd.org/public/rest/data';
-
-const CACHE_MS = 6 * 60 * 60_000; // OECD republishes on release, not intraday
-const cache = new Map();
-
-async function cached(key, fn) {
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.data;
-  const data = await fn();
-  cache.set(key, { at: Date.now(), data });
-  return data;
-}
-
-const AREAS = [
-  { code: 'CAN', name: 'Canada' },
-  { code: 'USA', name: 'United States' },
-  { code: 'GBR', name: 'United Kingdom' },
-  { code: 'DEU', name: 'Germany' },
-  { code: 'FRA', name: 'France' },
-  { code: 'ITA', name: 'Italy' },
-  { code: 'JPN', name: 'Japan' },
-  { code: 'OECD', name: 'OECD total' },
-];
-
-const AREA_KEY = AREAS.map((a) => a.code).join('+');
-
-// Every key below is positional and the full width of its DSD, wildcards included.
-// A key with the wrong number of segments returns 422 rather than an empty result,
-// so these were each checked against a live response before being written down.
+// The three curated measures, each a dataset and one key into it. The country
+// segment is empty on purpose: one call brings back every country OECD holds
+// for the measure, which is what lets the page offer all of them without
+// spending another request per country.
+//
+// Every key is positional and the full width of its DSD, wildcards included. A
+// key with the wrong number of segments answers 422 rather than an empty
+// result, so these were each checked against a live response.
 const METRICS = {
   gdp: {
     label: 'Real GDP, y/y',
     units: '%',
     freq: 'Quarterly',
     flow: 'OECD.SDD.NAD,DSD_NAMAIN1@DF_QNA_EXPENDITURE_GROWTH_OECD,1.1',
-    key: `Q.Y.${AREA_KEY}.S1.S1.B1GQ._Z._Z._Z.PC.L.GY.T0102`,
+    key: 'Q.Y..S1.S1.B1GQ._Z._Z._Z.PC.L.GY.T0102',
     start: '2019-Q1',
   },
   cpi: {
@@ -46,7 +34,7 @@ const METRICS = {
     units: '%',
     freq: 'Monthly',
     flow: 'OECD.SDD.TPS,DSD_PRICES@DF_PRICES_ALL,1.0',
-    key: `${AREA_KEY}.M.N.CPI.PA._T.N.GY`,
+    key: '.M.N.CPI.PA._T.N.GY',
     start: '2019-01',
   },
   unemployment: {
@@ -54,103 +42,127 @@ const METRICS = {
     units: '%',
     freq: 'Monthly',
     flow: 'OECD.SDD.TPS,DSD_LFS@DF_IALFS_UNE_M,1.0',
-    key: `${AREA_KEY}.UNE_LF_M.PT_LF_SUB._Z.Y._T.Y_GE15._Z.M`,
+    key: '.UNE_LF_M.PT_LF_SUB._Z.Y._T.Y_GE15._Z.M',
     start: '2019-01',
   },
 };
 
-// SDMX-JSON 1.0 keys each observation by colon-joined positions into the
-// dimension value lists, so nothing can be read without the structure block.
-// Two traps, both hit against live responses:
-//   1. omitting Accept-Language returns a 500 reading "languageTag1"
-//   2. the response nests under data.structure, not data.structures
-async function sdmx(flow, key, start) {
-  const url = `${SDMX}/${flow}/${key}?startPeriod=${start}&dimensionAtObservation=AllDimensions`;
-  const r = await fetch(url, {
-    headers: {
-      Accept: 'application/vnd.sdmx.data+json;version=1.0',
-      'Accept-Language': 'en',
-    },
-  });
-  if (!r.ok) throw new Error(`oecd ${r.status}`);
+// Codes that are not a country. Every ISO country code here is three letters,
+// so the rest are groupings, and a grouping must not take a rank in a table
+// that ranks countries.
+const GROUPINGS = new Set(['OECD', 'OECDE', 'EA', 'EA19', 'EA20', 'EU', 'EU27_2020', 'G7', 'G20', 'USMCA', 'WXOECD', 'W']);
 
-  const body = await r.json();
-  const dims = body.data.structure.dimensions.observation;
-  const at = (id) => dims.findIndex((d) => d.id === id);
+const isGrouping = (code) => GROUPINGS.has(code) || code.length !== 3;
 
-  const areaPos = at('REF_AREA');
-  const timePos = at('TIME_PERIOD');
-  const dataset = body.data.dataSets[0];
+// A dataset or a key that does not exist is the caller's mistake, not an
+// upstream failure, so it answers 400 rather than going out as a 502.
+const refuse = (res, err) =>
+  err.badRequest ? res.status(400).json({ error: err.message }) : fail(res, err);
 
-  const byArea = new Map();
-  for (const [k, v] of Object.entries(dataset.observations || {})) {
-    const value = v[0];
-    if (typeof value !== 'number') continue; // a country that has not reported the period
+const SEGMENT = /^[A-Za-z0-9_+-]*$/;
+const START = /^\d{4}(-\d{2}|-Q\d)?$/;
 
-    const idx = k.split(':').map(Number);
-    const code = dims[areaPos].values[idx[areaPos]].id;
-    const period = dims[timePos].values[idx[timePos]].id;
+// A searched measure arrives as a dataset reference and a key, both of which
+// reach an upstream url. The reference is checked against the catalogue and the
+// key against the dataset's own dimensions, so nothing unchecked is pasted into
+// a path.
+async function parseFound(query) {
+  const ref = String(query.flow || '');
+  const key = String(query.key || '');
+  const start = String(query.start || '2016');
 
-    if (!byArea.has(code)) byArea.set(code, []);
-    byArea.get(code).push({ d: period, v: value });
+  if (!START.test(start)) return { error: 'start must be a year, a month or a quarter' };
+
+  const flow = await flowByRef(ref);
+  if (!flow.dsd) return { error: `${flow.name} names no structure` };
+
+  const dimIds = await dsdDimensions(flow.dsd);
+  const areaId = AREA_IDS.find((id) => dimIds.includes(id));
+  if (!areaId) return { error: `${flow.name} has no reference area` };
+
+  const segments = key.split('.');
+  if (segments.length !== dimIds.length) {
+    return { error: `key must have ${dimIds.length} segments, got ${segments.length}` };
+  }
+  if (segments.some((s) => !SEGMENT.test(s))) return { error: 'key segments must be codes' };
+
+  for (let i = 0; i < dimIds.length; i++) {
+    const wildcard = segments[i] === '';
+    if (dimIds[i] === areaId && !wildcard) {
+      return { error: 'the country segment carries every country, so it is left empty' };
+    }
+    if (dimIds[i] !== areaId && wildcard) {
+      return { error: `pick a value for ${dimIds[i]}` };
+    }
   }
 
-  // periods come back in publication order, not chronological
-  for (const obs of byArea.values()) obs.sort((a, b) => a.d.localeCompare(b.d));
-  return byArea;
+  return { ref, key, start, label: flow.name };
 }
 
-async function metricSeries(name) {
-  const m = METRICS[name];
-  return cached(`intl:${name}`, async () => {
-    const byArea = await sdmx(m.flow, m.key, m.start);
-    return AREAS.map((a) => ({
-      code: a.code,
-      name: a.name,
-      observations: byArea.get(a.code) || [],
-    }));
-  });
+// One measure across countries, whether it came from the three above or from a
+// search. Both answer in the same shape, so the chart does not care which.
+async function measureFrom(query) {
+  const name = query.metric;
+  if (query.flow) {
+    const asked = await parseFound(query);
+    if (asked.error) return asked;
+    const data = await seriesFor(asked.ref, asked.key, asked.start);
+    return { metric: 'found', ...data, start: asked.start };
+  }
+
+  const m = METRICS[name || 'gdp'];
+  if (!m) return { error: `unknown metric: ${name}` };
+
+  const data = await seriesFor(m.flow, m.key, m.start, { core: true });
+  return {
+    ...data,
+    metric: name || 'gdp',
+    // the curated three are named by the desk rather than by the dataset, which
+    // calls this "Consumer price indices (CPIs, HICPs), COICOP 1999"
+    label: m.label,
+    units: m.units,
+    freq: m.freq,
+    start: m.start,
+  };
 }
 
 router.get('/', async (req, res) => {
-  const name = req.query.metric || 'gdp';
-  const m = METRICS[name];
-  if (!m) return res.status(400).json({ error: `unknown metric: ${name}` });
-
   try {
-    res.json({
-      metric: name,
-      label: m.label,
-      units: m.units,
-      freq: m.freq,
-      areas: await metricSeries(name),
-      source: 'OECD Data Explorer, SDMX',
-    });
+    const body = await measureFrom(req.query);
+    if (body.error) return res.status(400).json({ error: body.error });
+    res.json({ ...body, budget: budget() });
   } catch (err) {
-    fail(res, err);
+    refuse(res, err);
   }
 });
 
-// One row per country across all three metrics. Countries that have not reported
-// a metric come back null and render as n/a rather than dropping out of the table.
+// One row per country across the three curated measures. A country that has not
+// reported one comes back null and renders as n/a rather than dropping out.
 router.get('/snapshot', async (req, res) => {
   try {
     const names = Object.keys(METRICS);
-    const sets = await Promise.all(names.map(metricSeries));
+    const sets = await Promise.all(
+      names.map((n) => seriesFor(METRICS[n].flow, METRICS[n].key, METRICS[n].start, { core: true })),
+    );
 
-    const rows = AREAS.map((a) => {
-      const row = { code: a.code, name: a.name };
-      names.forEach((n, i) => {
-        const obs = sets[i].find((s) => s.code === a.code)?.observations || [];
-        const last = obs[obs.length - 1] || null;
-        row[n] = last ? { value: last.v, period: last.d } : null;
-      });
-      return row;
+    const seen = new Map();
+    sets.forEach((set, i) => {
+      for (const area of set.areas) {
+        const found = seen.get(area.code) || { code: area.code, name: area.name, grouping: isGrouping(area.code) };
+        const last = area.observations[area.observations.length - 1] || null;
+        found[names[i]] = last ? { value: last.v, period: last.d } : null;
+        seen.set(area.code, found);
+      }
+    });
+
+    const rows = [...seen.values()].map((r) => {
+      for (const n of names) if (!(n in r)) r[n] = null;
+      return r;
     });
 
     res.json({
       metrics: names.map((n) => ({ key: n, label: METRICS[n].label, units: METRICS[n].units })),
-      rows,
+      rows: rows.sort((a, b) => a.name.localeCompare(b.name)),
       source: 'OECD Data Explorer, SDMX',
     });
   } catch (err) {
@@ -158,25 +170,56 @@ router.get('/snapshot', async (req, res) => {
   }
 });
 
-router.get('/csv', async (req, res) => {
-  const name = req.query.metric || 'gdp';
-  const m = METRICS[name];
-  if (!m) return res.status(400).json({ error: `unknown metric: ${name}` });
+// Everything OECD publishes, not just the three above. Ranked locally against a
+// catalogue held for half a day, because the hourly limit rules out asking the
+// provider about each result the way the Valet search does.
+router.get('/search', async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  // Default is datasets still being published. The catalogue carries a few
+  // hundred that stopped, and those are behind this flag.
+  const includeAll = req.query.all === '1';
+
+  if (q.length < 2) return res.json({ query: q, results: [], includeAll });
 
   try {
-    const areas = await metricSeries(name);
-    const rows = ['metric,country_code,country,period,value,units'];
-    for (const a of areas) {
-      for (const o of a.observations) {
-        rows.push(row([name, a.code, a.name, o.d, o.v, m.units]));
+    const { results, budget: left } = await search(q, includeAll);
+    res.json({ query: q, results, includeAll, budget: left });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// The dimension picker for one dataset: which values exist, which combinations
+// of them are published, and how current each one is.
+router.get('/flow', async (req, res) => {
+  try {
+    res.json(await flowDetail(String(req.query.ref || '')));
+  } catch (err) {
+    refuse(res, err);
+  }
+});
+
+router.get('/csv', async (req, res) => {
+  try {
+    const body = await measureFrom(req.query);
+    if (body.error) return res.status(400).json({ error: body.error });
+
+    const name = body.metric === 'found' ? body.flow : body.metric;
+    const rows = ['measure,label,country_code,country,period,value,units'];
+    for (const area of body.areas) {
+      for (const o of area.observations) {
+        rows.push(row([name, body.label, area.code, area.name, o.d, o.v, body.units]));
       }
     }
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="oecd-${name}.csv"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="oecd-${String(name).replace(/[^A-Za-z0-9]+/g, '-').toLowerCase()}.csv"`,
+    );
     res.send(rows.join('\n'));
   } catch (err) {
-    fail(res, err);
+    refuse(res, err);
   }
 });
 

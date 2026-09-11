@@ -43,6 +43,21 @@ const COMMODITIES = [
   { symbol: 'ZCUSX', label: 'Corn', group: 'Agriculture', currency: 'USX', unit: 'cents per bushel', decimals: 2 },
 ];
 
+// The five rows the brief's market panel carries, drawn from the same two FMP
+// calls every other board uses.
+//
+// The two index rows are funds, not the indices. This plan does not quote an
+// index: ^GSPC and ^GSPTSE are dropped from a batch quote without an error, so
+// every row on the board reads n/a, and /stock-price-change answers 402 for
+// them outright. The funds track the indices and are named as funds.
+const BRIEF = [
+  { symbol: 'XIC.TO', label: 'S&P/TSX Composite, XIC fund', group: 'Equity', currency: 'CAD', decimals: 2 },
+  { symbol: 'SPY', label: 'S&P 500, SPY fund', group: 'Equity', currency: 'USD', decimals: 2 },
+  { symbol: 'USDCAD', label: 'USD/CAD', group: 'FX', currency: 'CAD', decimals: 4 },
+  { symbol: 'CLUSD', label: 'WTI crude', group: 'Commodities', currency: 'USD', unit: 'per barrel', decimals: 2 },
+  { symbol: 'XAUUSD', label: 'Gold', group: 'Commodities', currency: 'USD', unit: 'per troy oz, spot', decimals: 2 },
+];
+
 // Two sector boards, one ETF per sector on each, and the benchmark the
 // relative column is measured against. Canada is the shorter board: the TSX
 // sector funds cover six of the eleven GICS sectors, so a sector missing here
@@ -103,4 +118,4 @@ const PERIODS = [
   { key: '1Y', field: '1Y' },
 ];
 
-module.exports = { FX, COMMODITIES, SECTOR_BOARDS, SECTOR_SYMBOLS, sectorBoard, PERIODS };
+module.exports = { FX, COMMODITIES, BRIEF, SECTOR_BOARDS, SECTOR_SYMBOLS, sectorBoard, PERIODS };

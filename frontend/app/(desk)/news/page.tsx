@@ -3,21 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import * as T from '../../theme';
-import { COLOR, PLOT, card } from '../../theme';
+import { COLOR, card } from '../../theme';
 import { getJson } from '../../lib/api';
-
-type Item = {
-  id: string;
-  source: string;
-  feedId: string;
-  country: 'CA' | 'US';
-  category: string;
-  title: string;
-  link: string;
-  published: string;
-  summary: string;
-  publisher: string | null;
-};
+import FeedItem, { type Item } from '../../components/FeedItem';
 
 type SourceStat = {
   id: string;
@@ -41,13 +29,6 @@ const WINDOWS: [string, string][] = [
 // News is cached upstream for five minutes, so asking more often than that only
 // costs a round trip to our own API.
 const REFRESH_MS = 5 * 60_000;
-
-const SOURCE_COLOR: Record<string, string> = {
-  CNBC: COLOR.us,
-  FMP: PLOT[3],
-  StatCan: COLOR.ca,
-  'Bank of Canada': COLOR.accent,
-};
 
 export default function NewsPage() {
   const [window, setWindow] = useState('7d');
@@ -214,30 +195,7 @@ export default function NewsPage() {
             <div key={g.day}>
               <div style={S.dayHead}>{g.day}</div>
               {g.items.map((item) => (
-                <a
-                  key={item.id}
-                  href={item.link}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  style={S.item}
-                >
-                  <div style={S.itemHead}>
-                    <span
-                      style={{
-                        ...S.badge,
-                        color: SOURCE_COLOR[item.source] ?? COLOR.dim,
-                        borderColor: SOURCE_COLOR[item.source] ?? COLOR.line,
-                      }}
-                    >
-                      {item.source}
-                    </span>
-                    <span style={S.category}>{item.category}</span>
-                    {item.publisher && <span style={S.category}>{item.publisher}</span>}
-                    <span style={S.time}>{item.published.slice(11, 16)} UTC</span>
-                  </div>
-                  <div style={S.title}>{item.title}</div>
-                  {item.summary && <div style={S.summary}>{item.summary}</div>}
-                </a>
+                <FeedItem key={item.id} item={item} />
               ))}
             </div>
           ))}
@@ -309,25 +267,4 @@ const S: Record<string, CSSProperties> = {
     padding: '15px 0 7px',
     borderBottom: `1px solid ${COLOR.hair}`,
   },
-  item: {
-    display: 'block',
-    padding: '11px 0',
-    borderBottom: `1px solid ${COLOR.hair}`,
-    textDecoration: 'none',
-    color: 'inherit',
-  },
-  itemHead: { display: 'flex', alignItems: 'center', gap: 9, marginBottom: 5, flexWrap: 'wrap' },
-  badge: {
-    fontSize: 9.5,
-    letterSpacing: '.2px',
-    padding: '2px 7px',
-    borderRadius: 3,
-    borderWidth: 1,
-    borderStyle: 'solid',
-    whiteSpace: 'nowrap',
-  },
-  category: { fontSize: 10.5, color: COLOR.dim },
-  time: { fontSize: 10.5, color: COLOR.dim, marginLeft: 'auto' },
-  title: { fontSize: 13.5, color: COLOR.ink, lineHeight: 1.45 },
-  summary: { fontSize: 12, color: COLOR.dim, lineHeight: 1.5, marginTop: 4 },
 };
