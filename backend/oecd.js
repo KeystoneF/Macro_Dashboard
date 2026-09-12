@@ -75,10 +75,14 @@ async function ask(url, accept, { core = false } = {}) {
 
   if (!r.ok) {
     const text = (await r.text()).slice(0, 200);
-    // 404 is two different answers: NoRecordsFound is a key naming a
-    // combination nobody publishes, anything else is a dataset that is not there
+    // 404 is two different answers: a key naming a combination nobody
+    // publishes, and a dataset that is not there. It spells the first one
+    // NoResultsFound on data and NoRecordsFound on structure, and reading only
+    // the one left every country-specific dataset reported as missing, because
+    // the dimension probe asks for Canada and the US and Germany - tax revenues
+    // holds neither.
     if (r.status === 404) {
-      const empty = /NoRecordsFound/i.test(text);
+      const empty = /No(Results|Records|Data)Found/i.test(text);
       const err = new Error(empty ? 'that combination is not published' : `oecd 404 ${text}`);
       err.empty = empty;
       throw err;
@@ -383,7 +387,14 @@ async function flowDetail(ref) {
       // a dataset that covers neither Canada nor the US still has combinations
       // worth listing, so the probe widens rather than reporting nothing
       if (!err.empty) throw err;
-      body = await probe('');
+      try {
+        body = await probe('');
+      } catch (wider) {
+        // nothing was picked yet, so "that combination is not published" would
+        // name a choice the analyst has not made
+        if (wider.empty) throw new Error(`${flow.name} publishes no observations to probe`);
+        throw wider;
+      }
     }
 
     const { dims, rows } = readObservations(body);
