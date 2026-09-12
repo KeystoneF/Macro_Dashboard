@@ -312,8 +312,7 @@ export default function InternationalPage() {
             <h2 style={T.h2}>{data ? data.label : 'Loading'}</h2>
             <p style={{ ...T.desc, marginBottom: 0 }}>
               {data ? measureNote(data) : 'Loading'}
-              {breaks > 0 &&
-                `. ${breaks} break${breaks > 1 ? 's' : ''} where a period did not print`}
+              {breaks > 0 && ` · ${breaks} data gap${breaks > 1 ? 's' : ''}`}
             </p>
             {data?.mixedUnits && (
               // countries reporting in their own units are not one comparison,
@@ -468,9 +467,18 @@ function rankRows(snap: Snapshot | null, sortBy: MetricKey): (Row & { rank: numb
 }
 
 function measureNote(data: MeasureData) {
+  const summaries: Record<string, string> = {
+    gdp: '% year over year, seasonally adjusted',
+    cpi: '% year over year, unadjusted',
+    unemployment: '% of labour force, ages 15+, seasonally adjusted',
+  };
+  const source = data.source.replace('OECD Data Explorer, SDMX', 'OECD');
+  const summary = summaries[data.metric];
+  if (summary) return [data.freq, summary, source].filter(Boolean).join(' · ');
+
   const parts = [data.units, data.freq ? data.freq.toLowerCase() : null].filter(Boolean);
   const picked = (data.selection ?? []).map((s) => s.value).join(', ');
-  return [parts.join(', '), picked, data.source].filter(Boolean).join('. ');
+  return [parts.join(', '), picked, source].filter(Boolean).join(' · ');
 }
 
 function Value({ cell, now }: { cell: Cell; now: number }) {
