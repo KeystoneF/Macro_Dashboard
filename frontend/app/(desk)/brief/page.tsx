@@ -10,11 +10,13 @@ import { age, fmtPct, fmtPrice, pctColor } from '../../lib/format';
 import { useMediaQuery } from '../../lib/useMediaQuery';
 import { useFocusRefresh, useNavRefresh } from '../../lib/navRefresh';
 import FeedItem, { type Item } from '../../components/FeedItem';
-import { bySlug } from '../modules';
+import { MODULES, bySlug } from '../modules';
 
 type Metric = {
   key: string;
-  country: 'CA' | 'US';
+  country: string;
+  countryName: string;
+  kind: string;
   label: string;
   units: string;
   freq: string;
@@ -26,6 +28,48 @@ type Metric = {
   previous: { value: number; period: string } | null;
   unchangedSince: string | null;
   error?: string;
+};
+
+type Country = { code: string; name: string; feed: string | null; national: boolean };
+
+type Panel = {
+  metrics: Metric[];
+  truncated: number;
+  countries: Country[];
+  snapshotError: string | null;
+};
+
+// One fact as the module that owns it pulled it. The value is a string here on
+// purpose: it is formatted where it was read, so nothing downstream can round
+// it a second time.
+type Fact = {
+  id: string;
+  module: string;
+  moduleNum: string;
+  moduleLabel: string;
+  country?: string;
+  label: string;
+  value: string | null;
+  period: string | null;
+  note?: string | null;
+  title?: string;
+  link?: string;
+  published?: string;
+  source: string;
+};
+
+type Digest = {
+  window: string;
+  country: string;
+  items: { rank: number; line: string | null; fact: Fact }[];
+  ranked: boolean;
+  model: string | null;
+  modelError: string | null;
+  facts: number;
+  missing: { module: string; num: string; error: string }[];
+  skipped: { module: string; num: string; reason: string }[];
+  modules: string[];
+  gatheredAt: string;
 };
 
 type MarketRow = {
@@ -60,16 +104,13 @@ const NEWS_REFRESH_MS = 5 * 60_000;
 
 const SHOWN = 6;
 
-const COUNTRIES: [string, string][] = [
-  ['all', 'Both'],
-  ['CA', 'Canada'],
-  ['US', 'United States'],
-];
+const ALL = 'all';
 
 export default function BriefPage() {
   const [period, setPeriod] = useState<Period>('daily');
-  const [country, setCountry] = useState('all');
-  const [metrics, setMetrics] = useState<Metric[] | null>(null);
+  const [country, setCountry] = useState(ALL);
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const [digest, setDigest] = useState<Digest | null>(null);
   const [board, setBoard] = useState<Board | null>(null);
   const [feed, setFeed] = useState<Feed | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -101,14 +142,24 @@ export default function BriefPage() {
       .catch((e) => mounted.current && setError(e.message));
   }, []);
 
-  const loadMetrics = useCallback(() => {
-    getJson<{ metrics: Metric[] }>('/api/brief/metrics')
-      .then((b) => mounted.current && setMetrics(b.metrics))
+  const loadPanel = useCallback(() => {
+    getJson<Panel>(`/api/brief/metrics?country=${country}`)
+      .then((b) => mounted.current && setPanel(b))
       .catch((e) => mounted.current && setError(e.message));
-  }, []);
+  }, [country]);
+
+  const loadDigest = useCallback(() => {
+    getJson<Digest>(`/api/brief/digest?window=${period}&country=${country}`)
+      .then((d) => mounted.current && setDigest(d))
+      .catch((e) => mounted.current && setError(e.message));
+  }, [period, country]);
 
   useEffect(() => {
-    loadMetrics();
+    loadPanel();
+    loadDigest();
+  }, [loadPanel, loadDigest]);
+
+  useEffect(() => {
     loadNews();
     loadMarkets(true);
     const news = setInterval(loadNews, NEWS_REFRESH_MS);
@@ -117,16 +168,26 @@ export default function BriefPage() {
       clearInterval(news);
       clearInterval(markets);
     };
-  }, [loadMetrics, loadNews, loadMarkets]);
+  }, [loadNews, loadMarkets]);
 
   const reload = useCallback(() => {
-    loadMetrics();
+    loadPanel();
+    loadDigest();
     loadNews();
     loadMarkets(true);
-  }, [loadMetrics, loadNews, loadMarkets]);
+  }, [loadPanel, loadDigest, loadNews, loadMarkets]);
 
   useNavRefresh('brief', reload);
   useFocusRefresh(reload);
+
+  // the answer names the window and country it was built for, so a ranking for
+  // the previous pick is not left on screen while the next one is in flight
+  const ranking = digest && digest.window === period && digest.country === country ? digest : null;
+
+  const picked = panel?.countries.find((c) => c.code === country) ?? null;
+  // the aggregator's publishers cover two countries, so any other choice has no
+  // headlines of its own rather than every publisher's
+  const feedless = country !== ALL && !picked?.feed;
 
   // The window is measured from when the server pulled the feeds rather than
   // from this machine's clock, so "the last 24 hours" means the day before the
@@ -135,13 +196,13 @@ export default function BriefPage() {
     if (!feed) return { releases: [], headlines: [] };
     const cutoff = new Date(Date.parse(feed.fetchedAt) - tab.days * 864e5).toISOString();
     const inWindow = feed.items.filter(
-      (i) => i.published >= cutoff && (country === 'all' || i.country === country),
+      (i) => i.published >= cutoff && (!picked?.feed || i.country === picked.feed),
     );
     return {
       releases: inWindow.filter((i) => i.category !== 'Markets'),
       headlines: inWindow.filter((i) => i.category === 'Markets'),
     };
-  }, [feed, tab, country]);
+  }, [feed, tab, picked]);
 
   const watchlist = bySlug('watchlist');
 
@@ -149,7 +210,6 @@ export default function BriefPage() {
     <main className="desk-page" style={T.page}>
       <header style={{ marginBottom: 16 }}>
         <h1 style={T.wordmark}>Daily Brief</h1>
-        <p style={T.sub}>Canada and the United States: what printed, and what moved</p>
       </header>
 
       {error && <div style={{ ...card, color: COLOR.bad, marginBottom: 16 }}>{error}</div>}
@@ -167,16 +227,19 @@ export default function BriefPage() {
 
         <span style={T.divider} />
 
-        {COUNTRIES.map(([key, label]) => (
-          <button
-            key={key}
-            style={{ ...T.control, ...(country === key ? T.controlOn : {}) }}
-            onClick={() => setCountry(key)}
-            title="Publisher focus, not a classification of each article"
-          >
-            {label}
-          </button>
-        ))}
+        <select
+          style={{ ...T.input, maxWidth: 220 }}
+          value={country}
+          onChange={(e) => setCountry(e.target.value)}
+          title="Applies to the prints, the ranking and the publisher focus"
+        >
+          <option value={ALL}>All countries</option>
+          {(panel?.countries ?? []).map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.name}
+            </option>
+          ))}
+        </select>
 
         <div style={T.spacer} />
         <span style={{ fontSize: 11, color: COLOR.dim }}>
@@ -192,35 +255,60 @@ export default function BriefPage() {
           alignItems: 'start',
         }}
       >
-        <section style={card}>
-          <h2 style={T.h2}>Releases and commentary</h2>
-          <p style={T.desc}>
-            Newest first over the {tab.label.toLowerCase()} window. Ranking by model is not wired,
-            so this is publication order.
-          </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Ranked digest={ranking} />
 
-          <Stream
-            title="Official releases"
-            items={shown.releases}
-            empty="Nothing published in this window"
-            loading={!feed}
-          />
-          <Stream
-            title="Market headlines"
-            items={shown.headlines}
-            empty="Nothing published in this window"
-            loading={!feed}
-          />
-        </section>
+          <section style={card}>
+            <h2 style={T.h2}>Releases and commentary</h2>
+            <p style={T.desc}>Newest first.</p>
+
+            {feedless && (
+              <p style={S.quiet}>
+                No publisher in the aggregator covers {picked?.name ?? 'this country'}.
+              </p>
+            )}
+            {!feedless && (
+              <>
+                <Stream
+                  title="Official releases"
+                  items={shown.releases}
+                  empty="Nothing published in this window"
+                  loading={!feed}
+                />
+                <Stream
+                  title="Market headlines"
+                  items={shown.headlines}
+                  empty="Nothing published in this window"
+                  loading={!feed}
+                />
+              </>
+            )}
+          </section>
+        </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <section style={card}>
             <h2 style={T.h2}>Key metrics</h2>
-            <p style={T.desc}>Latest print from each national source, with its period.</p>
-            {!metrics && <p style={S.quiet}>Loading</p>}
-            {(metrics ?? []).map((m, i) => (
-              <MetricRow key={m.key} metric={m} last={i === (metrics ?? []).length - 1} />
+            <p style={T.desc}>
+              {country === ALL ? 'Newest print first, across every country.' : 'Latest print, with its period.'}
+            </p>
+            {!panel && <p style={S.quiet}>Loading</p>}
+            {panel && !panel.metrics.length && <p style={S.quiet}>No print on file for this country</p>}
+            {(panel?.metrics ?? []).map((m, i) => (
+              <MetricRow key={m.key} metric={m} last={i === panel!.metrics.length - 1} />
             ))}
+            {!!panel?.truncated && (
+              <p style={{ ...S.quiet, marginTop: 10 }}>
+                {panel.truncated} more across the{' '}
+                <Link href="/international" style={S.link}>
+                  international module
+                </Link>
+                .
+              </p>
+            )}
+            {panel?.snapshotError && (
+              <p style={{ ...S.quiet, color: COLOR.bad, marginTop: 10 }}>{panel.snapshotError}</p>
+            )}
           </section>
 
           <section style={card}>
@@ -288,6 +376,103 @@ export default function BriefPage() {
   );
 }
 
+// The panel design/1-daily-brief.html calls "Top Releases & Articles Ranked by
+// Model". The model orders the picks and writes the line; every figure on the
+// row is the one the owning module pulled.
+function Ranked({ digest }: { digest: Digest | null }) {
+  const covered = (digest?.modules ?? [])
+    .map((num) => MODULES.find((m) => m.num === num))
+    .filter(Boolean).length;
+
+  return (
+    <section style={card}>
+      <div style={T.cardHead}>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={T.h2}>Ranked by model</h2>
+          <p style={{ ...T.desc, marginBottom: 0 }}>
+            {digest && !digest.ranked
+              ? 'Ranking unavailable, so these are the newest prints across the desk.'
+              : 'The model picks from what the modules pulled. Every figure is the source’s.'}
+          </p>
+        </div>
+        {digest?.ranked && digest.model && (
+          <span style={{ fontSize: 10.5, color: COLOR.dim, whiteSpace: 'nowrap' }}>
+            {digest.model}
+          </span>
+        )}
+      </div>
+
+      {!digest && <p style={S.quiet}>Reading the desk</p>}
+      {digest && !digest.items.length && (
+        <p style={S.quiet}>Nothing to rank in this window</p>
+      )}
+
+      {(digest?.items ?? []).map((item, i) => (
+        <RankedRow
+          key={item.fact.id}
+          rank={item.rank}
+          line={item.line}
+          fact={item.fact}
+          last={i === digest!.items.length - 1}
+        />
+      ))}
+
+      {digest && (
+        <p style={{ ...S.quiet, marginTop: 12 }}>
+          {digest.facts} facts from {covered} of {MODULES.length} modules
+          {digest.missing.length
+            ? `, ${digest.missing.map((m) => `module ${m.num} unavailable`).join(', ')}`
+            : ''}
+          {digest.modelError ? `. ${digest.modelError}` : ''}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function RankedRow({
+  rank,
+  line,
+  fact,
+  last,
+}: {
+  rank: number;
+  line: string | null;
+  fact: Fact;
+  last: boolean;
+}) {
+  const owner = MODULES.find((m) => m.slug === fact.module);
+  const stamp = [fact.period, fact.note, fact.source].filter(Boolean).join(', ');
+
+  return (
+    <div style={{ ...S.rankRow, borderBottom: last ? 'none' : `1px solid ${COLOR.hair}` }}>
+      <div style={S.rank}>{String(rank).padStart(2, '0')}</div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={S.rankHead}>
+          {owner && (
+            <Link href={`/${owner.slug}`} style={S.moduleBadge}>
+              {owner.num} {owner.label}
+            </Link>
+          )}
+          {fact.value && <span style={S.rankValue}>{fact.value}</span>}
+        </div>
+
+        {fact.title && fact.link ? (
+          <a href={fact.link} target="_blank" rel="noreferrer noopener" style={S.rankTitle}>
+            {fact.title}
+          </a>
+        ) : (
+          <div style={S.rankTitle}>{fact.label}</div>
+        )}
+
+        {fact.title && <div style={S.sub}>{fact.label}</div>}
+        {line && <div style={S.rankLine}>{line}</div>}
+        {stamp && <div style={S.sub}>{stamp}</div>}
+      </div>
+    </div>
+  );
+}
+
 function Stream({
   title,
   items,
@@ -338,7 +523,7 @@ function MetricRow({ metric, last }: { metric: Metric; last: boolean }) {
     <div style={{ ...S.metricRow, borderBottom: last ? 'none' : `1px solid ${COLOR.hair}` }}>
       <div style={{ minWidth: 0 }}>
         <div style={S.metricName}>
-          {metric.country}: {metric.label}
+          {metric.countryName}: {metric.label}
         </div>
         <div style={S.sub}>{metric.source}</div>
       </div>
@@ -374,6 +559,44 @@ const S: Record<string, CSSProperties> = {
     padding: '14px 0 6px',
     borderBottom: `1px solid ${COLOR.hair}`,
   },
+  rankRow: { display: 'flex', gap: 12, padding: '12px 0' },
+  rank: {
+    fontFamily: T.FONT.display,
+    fontStyle: 'italic',
+    fontSize: 19,
+    color: COLOR.accent,
+    width: 28,
+    flexShrink: 0,
+    lineHeight: 1.2,
+  },
+  rankHead: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 4,
+  },
+  moduleBadge: {
+    fontSize: 9.5,
+    letterSpacing: '.2px',
+    color: COLOR.dim,
+    padding: '2px 7px',
+    borderRadius: 3,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: COLOR.line,
+    textDecoration: 'none',
+    whiteSpace: 'nowrap',
+  },
+  rankValue: { fontSize: 13, color: COLOR.ink, whiteSpace: 'nowrap' },
+  rankTitle: {
+    display: 'block',
+    fontSize: 13.5,
+    color: COLOR.ink,
+    lineHeight: 1.45,
+    textDecoration: 'none',
+  },
+  rankLine: { fontSize: 12, color: COLOR.dim, lineHeight: 1.5, marginTop: 4 },
   metricRow: {
     display: 'flex',
     justifyContent: 'space-between',

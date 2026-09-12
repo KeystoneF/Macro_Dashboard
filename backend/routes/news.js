@@ -249,4 +249,7 @@ router.get('/', async (req, res) => {
   }
 });
 
+// the brief's digest reads the same sweep rather than fetching this route
+router.recent = load;
+
 module.exports = router;

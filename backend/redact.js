@@ -7,7 +7,13 @@
 // every message leaves through here.
 
 const secrets = () =>
-  [process.env.FMP_API_KEY, process.env.FRED_API_KEY, process.env.DB_PASSWORD].filter(
+  [
+    process.env.FMP_API_KEY,
+    process.env.FRED_API_KEY,
+    process.env.OPEN_AI_KEY,
+    process.env.JWT_SECRET,
+    process.env.DB_PASSWORD,
+  ].filter(
     // six, not eight: the dev database password is seven characters and was
     // slipping past the value match on its way into a log line
     (v) => v && v.length >= 6,
@@ -20,10 +26,14 @@ function redact(text) {
   // URL or in its error prose, so the parameter name is matched wherever it
   // appears. Over-redacting a log line costs nothing; under-redacting it once
   // puts a live key somewhere permanent.
-  return out.replace(
+  out = out.replace(
     /\b(apikey|api_key|key|token|secret|password|pwd)=\s*[^&\s"']+/gi,
     '$1=[redacted]',
   );
+  // OpenAI takes its key in an Authorization header rather than in the query
+  // string, so it reaches an error as a bearer token or as a bare sk- id
+  out = out.replace(/\b(bearer)\s+[A-Za-z0-9._~+/-]{8,}=*/gi, '$1 [redacted]');
+  return out.replace(/\bsk-[A-Za-z0-9._-]{8,}/g, '[redacted]');
 }
 
 // A driver can raise a connection failure with an empty message and the reason

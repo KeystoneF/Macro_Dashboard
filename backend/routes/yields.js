@@ -191,4 +191,7 @@ router.get('/csv', async (req, res) => {
   }
 });
 
+// shared with the brief's digest, which must not call this route over http
+router.curveFor = curveFor;
+
 module.exports = router;

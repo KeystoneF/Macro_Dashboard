@@ -14,6 +14,7 @@ type Health = {
   db: boolean;
   dbError: string | null;
   fmpKey: boolean;
+  openAiKey: boolean;
   time: string;
 };
 
@@ -36,6 +37,7 @@ export default function StatusPage() {
     ['Express API', apiUp, apiUp === false ? 'not reachable on :4000' : ''],
     ['PostgreSQL', health?.db ?? null, health?.dbError ?? ''],
     ['FMP key loaded', health?.fmpKey ?? null, ''],
+    ['OpenAI key loaded', health?.openAiKey ?? null, "the brief's ranked panel falls back to newest first without it"],
   ];
 
   const statusColor = (ok: boolean | null) =>

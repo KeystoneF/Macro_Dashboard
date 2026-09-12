@@ -552,4 +552,11 @@ router.get('/heatmap/csv', async (req, res) => {
   }
 });
 
+// Hung off the router for the brief's digest, which reads these boards without
+// going back through HTTP: an internal request would carry no session cookie.
+router.briefBoard = () => instrumentRows(BRIEF, false);
+router.instrumentRows = instrumentRows;
+router.sectorRows = sectorRows;
+router.heatmapData = heatmapData;
+
 module.exports = router;

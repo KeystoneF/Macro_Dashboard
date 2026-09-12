@@ -100,6 +100,8 @@ app.get('/api/health', async (req, res) => {
     db,
     dbError,
     fmpKey: Boolean(process.env.FMP_API_KEY),
+    // whether a key is loaded, never which one: this route is open
+    openAiKey: Boolean(process.env.OPEN_AI_KEY),
     time: new Date().toISOString(),
   });
 });

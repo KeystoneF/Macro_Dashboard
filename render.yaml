@@ -54,6 +54,9 @@ services:
         sync: false
       - key: FRED_API_KEY
         sync: false
+      # ranks the brief's top panel; the panel falls back to newest first without it
+      - key: OPEN_AI_KEY
+        sync: false
 
   - type: web
     name: macrodesk-web

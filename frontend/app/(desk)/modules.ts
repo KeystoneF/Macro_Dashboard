@@ -24,7 +24,7 @@ export const MODULES: Module[] = [
     group: 'Daily Workflow',
     mockup: '1-daily-brief.html',
     state: 'live',
-    note: 'Ranking by model is not wired, so the feed is in publication order.',
+    note: 'The ranked panel is picked by the model from what the nine modules pulled. The streams below it are newest first.',
   },
   {
     num: '02',

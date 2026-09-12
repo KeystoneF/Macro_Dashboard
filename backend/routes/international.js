@@ -138,33 +138,37 @@ router.get('/', async (req, res) => {
 
 // One row per country across the three curated measures. A country that has not
 // reported one comes back null and renders as n/a rather than dropping out.
+async function snapshot() {
+  const names = Object.keys(METRICS);
+  const sets = await Promise.all(
+    names.map((n) => seriesFor(METRICS[n].flow, METRICS[n].key, METRICS[n].start, { core: true })),
+  );
+
+  const seen = new Map();
+  sets.forEach((set, i) => {
+    for (const area of set.areas) {
+      const found = seen.get(area.code) || { code: area.code, name: area.name, grouping: isGrouping(area.code) };
+      const last = area.observations[area.observations.length - 1] || null;
+      found[names[i]] = last ? { value: last.v, period: last.d } : null;
+      seen.set(area.code, found);
+    }
+  });
+
+  const rows = [...seen.values()].map((r) => {
+    for (const n of names) if (!(n in r)) r[n] = null;
+    return r;
+  });
+
+  return {
+    metrics: names.map((n) => ({ key: n, label: METRICS[n].label, units: METRICS[n].units, freq: METRICS[n].freq })),
+    rows: rows.sort((a, b) => a.name.localeCompare(b.name)),
+    source: 'OECD Data Explorer, SDMX',
+  };
+}
+
 router.get('/snapshot', async (req, res) => {
   try {
-    const names = Object.keys(METRICS);
-    const sets = await Promise.all(
-      names.map((n) => seriesFor(METRICS[n].flow, METRICS[n].key, METRICS[n].start, { core: true })),
-    );
-
-    const seen = new Map();
-    sets.forEach((set, i) => {
-      for (const area of set.areas) {
-        const found = seen.get(area.code) || { code: area.code, name: area.name, grouping: isGrouping(area.code) };
-        const last = area.observations[area.observations.length - 1] || null;
-        found[names[i]] = last ? { value: last.v, period: last.d } : null;
-        seen.set(area.code, found);
-      }
-    });
-
-    const rows = [...seen.values()].map((r) => {
-      for (const n of names) if (!(n in r)) r[n] = null;
-      return r;
-    });
-
-    res.json({
-      metrics: names.map((n) => ({ key: n, label: METRICS[n].label, units: METRICS[n].units })),
-      rows: rows.sort((a, b) => a.name.localeCompare(b.name)),
-      source: 'OECD Data Explorer, SDMX',
-    });
+    res.json(await snapshot());
   } catch (err) {
     fail(res, err);
   }
@@ -222,5 +226,8 @@ router.get('/csv', async (req, res) => {
     refuse(res, err);
   }
 });
+
+// the brief reads the same snapshot for its country list and its metric rows
+router.snapshot = snapshot;
 
 module.exports = router;

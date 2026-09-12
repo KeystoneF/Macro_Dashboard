@@ -188,4 +188,17 @@ router.get('/csv', async (req, res) => {
   }
 });
 
+// last print per curated series, for the brief's digest. Already swept at
+// boot, so reading it costs nothing upstream.
+router.freshness = () => CATALOGUE.map((s) => ({
+  id: s.id,
+  label: s.label,
+  country: s.country,
+  group: s.group,
+  units: s.units,
+  freq: s.freq,
+  source: SOURCE_NAME[s.src],
+  updated: freshness.get(s.id) ?? null,
+}));
+
 module.exports = router;
