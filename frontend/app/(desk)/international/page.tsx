@@ -90,6 +90,10 @@ const FRAME: Frame = { w: 900, h: 300, pad: { top: 14, right: 16, bottom: 30, le
 // print. Japan's CPI in this dataset stops in 2021 while every peer is current.
 const STALE_MS = 400 * 864e5;
 
+// Which measure a response answered for. The api names a searched one `found`.
+const idOf = (d: MeasureData) =>
+  d.metric === 'found' ? measureId(d.flow ?? '', d.key ?? '') : d.metric;
+
 export default function InternationalPage() {
   const [metric, setMetric] = useState<MetricKey>('gdp');
   const [found, setFound] = useState<Measure | null>(null);
@@ -123,12 +127,12 @@ export default function InternationalPage() {
     };
   }, [query]);
 
-  // the chart clears itself on a switch by ignoring the previous response,
-  // rather than by blanking state from inside the effect
-  const data =
-    loaded && (loaded.flow ? measureId(loaded.flow, loaded.key ?? '') : loaded.metric) === wanted
-      ? loaded
-      : null;
+  // The chart clears itself on a switch by ignoring the previous response,
+  // rather than by blanking state from inside the effect. `metric` names which
+  // one answered: a curated measure carries its own name and a searched one
+  // carries `found`. Both carry flow and key, so reading those to decide would
+  // never match a curated measure and the chart would load forever.
+  const data = loaded && idOf(loaded) === wanted ? loaded : null;
 
   useEffect(() => {
     getJson<Snapshot>('/api/international/snapshot')
@@ -385,10 +389,6 @@ export default function InternationalPage() {
         <div style={T.cardHead}>
           <div>
             <h2 style={T.h2}>Peer snapshot</h2>
-            <p style={{ ...T.desc, marginBottom: 0 }}>
-              Latest figure per country, with the period beside it since countries report on
-              different dates. Click a column to rank by it.
-            </p>
           </div>
           <span style={{ fontSize: 11, color: COLOR.dim }}>
             {snap ? `${snap.rows.filter((r) => !r.grouping).length} countries` : ''}

@@ -145,10 +145,6 @@ function OecdSearch({ onShow, current }: { onShow: (m: Measure) => void; current
   return (
     <section style={T.card}>
       <h2 style={T.h2}>Search OECD</h2>
-      <p style={T.desc}>
-        Every dataset OECD publishes, not the three above. Pick one measure and it is drawn for
-        every country that reports it.
-      </p>
 
       <div style={T.controls}>
         <input
