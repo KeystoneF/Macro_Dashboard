@@ -388,11 +388,9 @@ function Ranked({ digest }: { digest: Digest | null }) {
       <div style={T.cardHead}>
         <div style={{ minWidth: 0 }}>
           <h2 style={T.h2}>Ranked by model</h2>
-          <p style={{ ...T.desc, marginBottom: 0 }}>
-            {digest && !digest.ranked
-              ? 'Ranking unavailable.'
-              : 'The model picks from what the modules pulled. Every figure is the source’s.'}
-          </p>
+          {digest && !digest.ranked && (
+            <p style={{ ...T.desc, marginBottom: 0 }}>Ranking unavailable.</p>
+          )}
         </div>
         {digest?.ranked && digest.model && (
           <span style={{ fontSize: 10.5, color: COLOR.dim, whiteSpace: 'nowrap' }}>
