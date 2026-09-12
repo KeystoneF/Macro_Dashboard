@@ -9,7 +9,7 @@
 
 const { redact, describe } = require('./redact');
 const { ask, configured, MODEL } = require('./openai');
-const { facts, MODULE, periodTime } = require('./desk');
+const { facts, countries, MODULE, NATIONAL, periodTime } = require('./desk');
 
 const CACHE_MS = 30 * 60_000;
 // A ranking that failed is worth asking for again well before one that worked,
@@ -94,10 +94,82 @@ function grounded(line, f) {
 const WORDS = /[a-z0-9]+/g;
 const NEW_WORDS = 2;
 
+const ownWords = (f) =>
+  new Set([f.label, f.title, f.value, f.note, f.source].filter(Boolean).join(' ').toLowerCase().match(WORDS) || []);
+
 function addsSomething(line, f) {
-  const own = new Set(String([f.label, f.title, f.value, f.note, f.source].filter(Boolean).join(' ')).toLowerCase().match(WORDS) || []);
+  const own = ownWords(f);
   const fresh = new Set((line.toLowerCase().match(WORDS) || []).filter((w) => !own.has(w)));
   return fresh.size >= NEW_WORDS;
+}
+
+// It leads with the row's own label often enough to handle here as well:
+// "Gold: Gold shows a daily move" is the label printed twice on one row. Only a
+// head whose every word is already in the fact goes, so a colon inside real
+// prose is left alone.
+const HEAD_MAX = 48;
+
+function stripLabelEcho(line, f) {
+  const at = line.indexOf(':');
+  if (at < 1 || at > HEAD_MAX) return line;
+
+  const own = ownWords(f);
+  const head = (line.slice(0, at).toLowerCase().match(WORDS) || []);
+  if (!head.length || !head.every((w) => own.has(w))) return line;
+
+  const rest = line.slice(at + 1).trim();
+  return rest || line;
+}
+
+// Words that assert a change. A fact carrying a move over a period supports
+// them and a level does not, and the model writes them against a level anyway,
+// so the instruction saying not to has this behind it.
+const DIRECTION =
+  /\b(rose|rise[sn]?|rising|fell|fall(s|en|ing)?|climb(ed|ing)?|drop(ped|ping)?|gain(ed|ing)?|declin(ed|ing)|advanc(ed|ing)|jump(ed|ing)?|slip(ped|ping)?|surg(ed|ing)|widen(ed|ing)?|narrow(ed|ing)?|steepen(ed|ing)?|flatten(ed|ing)?|increas(ed|ing)|decreas(ed|ing)|rallied|tumbled|weaken(ed|ing)?|strengthen(ed|ing)?|higher|lower|mov(e|es|ed|ing)|uptick|downtick)\b/i;
+
+// The other half of the same claim: saying a figure has held still is also a
+// statement about change, and only the fact's own note can carry it.
+const STEADY = /\b(steady|unchanged|held|holds|holding|flat|stable|pause[ds]?)\b/i;
+
+// The model attributed a United States yield to Canada, which no number check
+// can see. The desk knows every country it can name, so a line naming one that
+// the fact it points at does not is the same class of error as a stray figure.
+// Matched as whole words without building a regex per name, because a country
+// name carries brackets and periods that would have to be escaped into one.
+const LETTER = /[a-z0-9]/;
+
+function says(text, phrase) {
+  const hay = text.toLowerCase();
+  for (let at = hay.indexOf(phrase); at !== -1; at = hay.indexOf(phrase, at + 1)) {
+    const before = at === 0 ? ' ' : hay[at - 1];
+    const after = hay[at + phrase.length] ?? ' ';
+    if (!LETTER.test(before) && !LETTER.test(after)) return true;
+  }
+  return false;
+}
+
+const saysAny = (text, phrases) => phrases.some((p) => says(text, p));
+
+// the two with a national source get their adjectives as well, because they are
+// the two the desk writes about most and the model uses the forms alike
+const ALIAS = {
+  CAN: ['canada', 'canadian'],
+  USA: ['united states', 'u.s.', 'us', 'usa', 'american'],
+};
+
+const countryTests = (list) => list.map((c) => ALIAS[c.code] || [c.name.toLowerCase()]);
+
+function namesAnotherCountry(line, f, tests) {
+  const own = [f.label, f.title, f.source, NATIONAL[f.country] || f.country]
+    .filter(Boolean)
+    .join(' ');
+  return tests.some((t) => saysAny(line, t) && !saysAny(own, t));
+}
+
+function assertsUnsupportedChange(line, f) {
+  if (f.carriesChange) return false;
+  if (DIRECTION.test(line)) return true;
+  return STEADY.test(line) && !/unchanged/i.test(f.note || '');
 }
 
 const tidy = (line) =>
@@ -106,12 +178,15 @@ const tidy = (line) =>
     // here, with or without punctuation after it, and the digits in it would
     // fail the check below and cost the line
     .replace(/^\s*f\d+\b[\s:.,-]*/i, '')
+    // it reaches for the typographic hyphens as well, and "month-over-month"
+    // should be the one on the keyboard
+    .replace(/[‐‑‒]/g, '-')
     .replace(/\s*[—–]\s*/g, ', ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, LINE_MAX);
 
-function rank(items, bundle) {
+function rank(items, bundle, tests) {
   const byId = new Map(bundle.facts.map((f) => [f.id, f]));
   const out = [];
   const seen = new Set();
@@ -126,8 +201,13 @@ function rank(items, bundle) {
     // A line that fails either check costs the line, not the pick: the fact it
     // points at was still pulled from a source, and the commentary is the only
     // part that was not.
-    const line = tidy(item.line);
-    const keep = line && grounded(line, f) && addsSomething(line, f);
+    const line = stripLabelEcho(tidy(item.line), f);
+    const keep =
+      line &&
+      grounded(line, f) &&
+      addsSomething(line, f) &&
+      !assertsUnsupportedChange(line, f) &&
+      !namesAnotherCountry(line, f, tests);
 
     seen.add(f.id);
     perModule.set(f.module, taken + 1);
@@ -161,11 +241,15 @@ async function build({ window, country }) {
   };
 
   if (!configured()) {
-    return { ...base, items: newestFirst(bundle), ranked: false, model: null, modelError: 'OPEN_AI_KEY is not set' };
+    return { ...base, items: newestFirst(bundle), ranked: false, model: null, modelError: 'OPEN_AI_KEY was not set when the api started' };
   }
   if (!bundle.facts.length) {
     return { ...base, items: [], ranked: false, model: null, modelError: null };
   }
+
+  // the country list is the OECD snapshot the bundle already holds, so this
+  // costs nothing upstream
+  const tests = countryTests(await countries().catch(() => []));
 
   try {
     const { parsed, model } = await ask({
@@ -179,7 +263,7 @@ async function build({ window, country }) {
       schema: SCHEMA,
     });
 
-    return { ...base, items: rank(parsed.items, bundle), ranked: true, model, modelError: null };
+    return { ...base, items: rank(parsed.items, bundle, tests), ranked: true, model, modelError: null };
   } catch (err) {
     // the panel is not empty when the ranking fails: the facts behind it were
     // still pulled, so they render newest first and the panel says why

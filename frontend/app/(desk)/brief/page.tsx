@@ -290,7 +290,7 @@ export default function BriefPage() {
           <section style={card}>
             <h2 style={T.h2}>Key metrics</h2>
             <p style={T.desc}>
-              {country === ALL ? 'Newest print first, across every country.' : 'Latest print, with its period.'}
+              {country === ALL ? 'Newest print first.' : 'Latest print, with its period.'}
             </p>
             {!panel && <p style={S.quiet}>Loading</p>}
             {panel && !panel.metrics.length && <p style={S.quiet}>No print on file for this country</p>}
@@ -363,11 +363,10 @@ export default function BriefPage() {
           <section style={card}>
             <h2 style={T.h2}>On deck</h2>
             <p style={{ ...T.desc, marginBottom: 0 }}>
-              Watchlist news, earnings dates and the release calendar land here with{' '}
+              Needs{' '}
               <Link href={`/${watchlist?.slug}`} style={S.link}>
-                module {watchlist?.num}
+                mod 8
               </Link>
-              .
             </p>
           </section>
         </div>
@@ -391,7 +390,7 @@ function Ranked({ digest }: { digest: Digest | null }) {
           <h2 style={T.h2}>Ranked by model</h2>
           <p style={{ ...T.desc, marginBottom: 0 }}>
             {digest && !digest.ranked
-              ? 'Ranking unavailable, so these are the newest prints across the desk.'
+              ? 'Ranking unavailable.'
               : 'The model picks from what the modules pulled. Every figure is the source’s.'}
           </p>
         </div>

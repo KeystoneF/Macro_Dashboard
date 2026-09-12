@@ -1,0 +1,5 @@
+{
+  "watch": [".", ".env"],
+  "ext": "js,mjs,cjs,json",
+  "ignore": ["node_modules", "sql/*.sql"]
+}

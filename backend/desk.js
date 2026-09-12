@@ -320,6 +320,9 @@ const lastPrice = (r) =>
 const boardFact = (slug, r, change) =>
   fact(slug, {
     label: r.label,
+    // the value is a move over a period rather than a level, which is what lets
+    // the ranked panel's line say the thing rose
+    carriesChange: true,
     value: `${signed(r.changePct[change], 2, '%')} over ${change}, ${lastPrice(r)}`,
     period: r.quotedAt ? r.quotedAt.slice(0, 10) : null,
     source: 'FMP',
@@ -342,6 +345,7 @@ function heatmapFacts(data, change) {
   return [...new Map(picked.map((t) => [t.symbol, t])).values()].map((t) =>
     fact('heatmap', {
       label: `${data.universe}: ${t.name}`,
+      carriesChange: true,
       value: `${signed(t.changePct[change], 2, '%')} over ${change}`,
       period: data.asOf.slice(0, 10),
       note: `one of the ${HEAT_TOP} largest by market cap`,
@@ -363,6 +367,7 @@ function sectorFacts(board, rows, benchmark, change) {
     return fact('sectors', {
       country: code,
       label: `${board.label} sectors: ${r.label}`,
+      carriesChange: true,
       value: `${signed(r.changePct[change], 2, '%')} over ${change}`,
       note: rel == null ? null : `${signed(rel, 2, '%')} against ${benchmark.label}`,
       period: r.quotedAt ? r.quotedAt.slice(0, 10) : null,
@@ -374,6 +379,7 @@ function sectorFacts(board, rows, benchmark, change) {
     out.push(fact('sectors', {
       country: code,
       label: `${board.label}: ${benchmark.label}`,
+      carriesChange: true,
       value: `${signed(benchmark.changePct[change], 2, '%')} over ${change}`,
       period: benchmark.quotedAt ? benchmark.quotedAt.slice(0, 10) : null,
       source: 'FMP',
