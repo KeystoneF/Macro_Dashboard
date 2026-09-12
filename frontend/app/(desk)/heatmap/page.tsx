@@ -51,11 +51,7 @@ const REFRESH_MS = 5 * 60_000;
 const W = 1000;
 const H = 560;
 
-// For the saved image. Same layout, twice the user units, so every tile is
-// twice the size against the same label threshold: 492 of 503 names get a
-// ticker instead of 317, and the smallest is still around nine pixels in the
-// exported file. Raising the PNG scale alone cannot do this, because the
-// threshold is measured in user units and scaling moves every tile equally.
+// Use a larger export canvas to fit more readable ticker labels.
 const EXPORT_W = 2000;
 const EXPORT_H = 1120;
 
@@ -138,14 +134,10 @@ export default function HeatmapPage() {
     };
   }, [universe]);
 
-  // Filtering the last response rather than blanking it: switching boards
-  // must never draw one index's tiles under the other's heading, and the
-  // answer on hand belongs to whichever index was asked for last.
+  // Only display data for the selected universe.
   const data = loaded && loaded.universe === label(universe) ? loaded : null;
 
-  // A tile can only be drawn if it has both an area and a return. Anything
-  // missing either is left out of the map and counted underneath it, rather
-  // than drawn in a neutral colour that reads as "flat".
+  // Exclude missing returns instead of drawing them as flat moves.
   const drawable = useMemo(
     () => (data?.tiles ?? []).filter((t) => t.changePct[period] != null),
     [data, period],
@@ -172,9 +164,7 @@ export default function HeatmapPage() {
   const clamp = CLAMP[period] ?? 10;
   const excluded = (data?.tiles.length ?? 0) - drawable.length;
 
-  // flushSync renders the export chart before this handler continues, so the
-  // ref is populated by the time it is read. Doing this in an effect instead
-  // would mean setting state from inside one.
+  // Render the export SVG before reading its ref.
   const savePng = () => {
     flushSync(() => setExporting(true));
     if (exportRef.current) {
@@ -409,9 +399,7 @@ function HeatChart({
         const th = Math.max(0, t.h - GAP);
         const on = pinned?.symbol === t.item.symbol || hover?.symbol === t.item.symbol;
 
-        // A ticker goes on a tile whenever it can be read at the size this
-        // chart is drawn. The export chart is twice as large in user units, so
-        // the same rule labels far more of them there.
+        // Label tiles only when the text fits at the current scale.
         const showSymbol = tw > 13 && th > 6.5;
         const showPct = tw > 34 && th > 20;
         // shrink to fit the width rather than overflow it
@@ -495,9 +483,7 @@ function HeatChart({
   );
 }
 
-// The detail card, drawn inside the SVG so a saved PNG carries it too. It sits
-// against the tile it describes and is clamped to the chart, so a name in the
-// bottom right corner does not push its own card off the edge.
+// Keep the detail card inside the SVG and clamp it to the chart.
 const CARD = { w: 216, h: 84, pad: 10, gap: 7 };
 
 function TileCard({
@@ -611,10 +597,7 @@ const fmtCap = (v: number, currency?: string) =>
 
 const label = (key: string) => UNIVERSES.find(([k]) => k === key)?.[1] ?? key;
 
-// Where the names came from. The S&P 500 has a constituent list; the TSX does
-// not, so its membership is the union of two funds that replicate the index,
-// and the holdings they carry that are not constituents are named here rather
-// than left as a silent difference in the count.
+// Show the membership sources and unresolved holdings.
 function sourceNote(universe: string, data: Heatmap) {
   if (universe !== 'tsx') return 'FMP.';
   const skipped = data.skipped.length ? ` LEFT OUT: ${data.skipped.join(', ')}.` : '';

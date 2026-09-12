@@ -12,14 +12,8 @@ const {
   AREA_IDS,
 } = require('../oecd');
 
-// The three curated measures, each a dataset and one key into it. The country
-// segment is empty on purpose: one call brings back every country OECD holds
-// for the measure, which is what lets the page offer all of them without
-// spending another request per country.
-//
-// Every key is positional and the full width of its DSD, wildcards included. A
-// key with the wrong number of segments answers 422 rather than an empty
-// result, so these were each checked against a live response.
+// Curated OECD measures. Empty country segments fetch all countries.
+// Keys must include every dimension in the dataset's structure.
 const METRICS = {
   gdp: {
     label: 'Real GDP, y/y',
@@ -47,9 +41,7 @@ const METRICS = {
   },
 };
 
-// Codes that are not a country. Every ISO country code here is three letters,
-// so the rest are groupings, and a grouping must not take a rank in a table
-// that ranks countries.
+// Exclude aggregates from country rankings.
 const GROUPINGS = new Set(['OECD', 'OECDE', 'EA', 'EA19', 'EA20', 'EU', 'EU27_2020', 'G7', 'G20', 'USMCA', 'WXOECD', 'W']);
 
 const isGrouping = (code) => GROUPINGS.has(code) || code.length !== 3;
@@ -59,19 +51,17 @@ const isGrouping = (code) => GROUPINGS.has(code) || code.length !== 3;
 const refuse = (res, err) =>
   err.badRequest ? res.status(400).json({ error: err.message }) : fail(res, err);
 
-const SEGMENT = /^[A-Za-z0-9_+-]*$/;
-const START = /^\d{4}(-\d{2}|-Q\d)?$/;
+const SEGMENT = /^[A-Za-z0-9_-]*$/;
+const START = /^\d{4}(-(0[1-9]|1[0-2])|-Q[1-4])?$/;
 
-// A searched measure arrives as a dataset reference and a key, both of which
-// reach an upstream url. The reference is checked against the catalogue and the
-// key against the dataset's own dimensions, so nothing unchecked is pasted into
-// a path.
+// Validate discovered selections against the dataset structure.
 async function parseFound(query) {
   const ref = String(query.flow || '');
   const key = String(query.key || '');
   const start = String(query.start || '2016');
 
   if (!START.test(start)) return { error: 'start must be a year, a month or a quarter' };
+  if (ref.length > 200 || key.length > 500) return { error: 'dataset reference or key is too long' };
 
   const flow = await flowByRef(ref);
   if (!flow.dsd) return { error: `${flow.name} names no structure` };
@@ -110,7 +100,7 @@ async function measureFrom(query) {
     return { metric: 'found', ...data, start: asked.start };
   }
 
-  const m = METRICS[name || 'gdp'];
+  const m = Object.hasOwn(METRICS, name || 'gdp') ? METRICS[name || 'gdp'] : null;
   if (!m) return { error: `unknown metric: ${name}` };
 
   const data = await seriesFor(m.flow, m.key, m.start, { core: true });
@@ -174,9 +164,7 @@ router.get('/snapshot', async (req, res) => {
   }
 });
 
-// Everything OECD publishes, not just the three above. Ranked locally against a
-// catalogue held for half a day, because the hourly limit rules out asking the
-// provider about each result the way the Valet search does.
+// Search the cached OECD catalogue locally.
 router.get('/search', async (req, res) => {
   const q = String(req.query.q || '').trim();
   // Default is datasets still being published. The catalogue carries a few

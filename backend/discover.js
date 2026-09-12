@@ -1,5 +1,7 @@
 // Search across everything the three providers
 
+const fetch = require('./http');
+const { redact, describe } = require('./redact');
 const {
   VALET_BASE,
   FRED_BASE,
@@ -307,7 +309,7 @@ async function search(query, sources, includeAll) {
       return await fn();
     } catch (err) {
       // one provider being down must not empty the whole result list
-      notes.push(`${name} search unavailable: ${err.message}`);
+      notes.push(`${name} search unavailable: ${redact(describe(err))}`);
       return [];
     }
   };

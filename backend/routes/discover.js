@@ -16,6 +16,7 @@ router.get('/', async (req, res) => {
     return res.status(400).json({ error: `unknown source: ${sources}` });
   }
   if (q.length < 2) return res.json({ query: q, results: [], notes: [] });
+  if (q.length > 200) return res.status(400).json({ error: 'search must be 200 characters or fewer' });
 
   try {
     const { results, notes } = await cachedSearch(q, sources, includeAll);
@@ -50,7 +51,7 @@ router.get('/cube/:productId/resolve', async (req, res) => {
   if (!/^\d{6,10}$/.test(productId)) {
     return res.status(400).json({ error: 'productId must be numeric' });
   }
-  if (!picks.length || picks.some((p) => !/^\d+$/.test(p))) {
+  if (!picks.length || picks.length > 10 || picks.some((p) => !/^\d{1,9}$/.test(p))) {
     return res.status(400).json({ error: 'picks must be member ids' });
   }
 

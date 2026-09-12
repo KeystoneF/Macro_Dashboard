@@ -1,6 +1,4 @@
-// Nav order and numbering follow design/0-shell.html. `state` mirrors the module
-// table in CLAUDE.md and drives the banner on every not-yet-built route, so a
-// module that is only a mockup can never be mistaken for one showing live data.
+// Shared navigation order and module availability.
 
 export type ModuleState = 'live' | 'stubbed' | 'blocked' | 'mockup';
 

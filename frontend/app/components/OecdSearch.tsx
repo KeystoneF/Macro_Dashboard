@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import * as T from '../theme';
 import { COLOR } from '../theme';
@@ -54,15 +54,14 @@ export const measureId = (flow: string, key: string) => `${flow}|${key}`;
 
 function OecdSearch({ onShow, current }: { onShow: (m: Measure) => void; current: string | null }) {
   const [query, setQuery] = useState('');
-  // Off by default: what comes back is datasets OECD is still publishing. A few
-  // hundred stopped years ago and are only wanted by someone reproducing an old
-  // chart on purpose.
+  // Hide discontinued datasets unless requested.
   const [includeAll, setIncludeAll] = useState(false);
   const [data, setData] = useState<Results | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [flow, setFlow] = useState<Flow | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
   const [picks, setPicks] = useState<string[]>([]);
+  const requestId = useRef(0);
 
   const term = query.trim();
 
@@ -88,16 +87,18 @@ function OecdSearch({ onShow, current }: { onShow: (m: Measure) => void; current
   }, [term, includeAll]);
 
   const open = (ref: string) => {
+    const request = ++requestId.current;
     setFlow(null);
     setOpening(ref);
     setError(null);
     getJson<Flow>(`/api/international/flow?ref=${encodeURIComponent(ref)}`)
       .then((f) => {
+        if (request !== requestId.current) return;
         setFlow(f);
         setPicks(f.defaults ?? f.combos[0]?.values ?? []);
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setOpening(null));
+      .catch((e) => request === requestId.current && setError(e.message))
+      .finally(() => request === requestId.current && setOpening(null));
   };
 
   // Choosing a value moves to the published combination closest to what is

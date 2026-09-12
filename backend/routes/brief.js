@@ -41,7 +41,7 @@ router.get('/digest', async (req, res) => {
   if (asked.error) return res.status(400).json({ error: asked.error });
 
   const window = String(req.query.window || 'daily');
-  if (!(window in WINDOWS)) return res.status(400).json({ error: `unknown window: ${window}` });
+  if (!Object.hasOwn(WINDOWS, window)) return res.status(400).json({ error: `unknown window: ${window}` });
 
   try {
     res.json(await digest({ window, country: asked.country }));

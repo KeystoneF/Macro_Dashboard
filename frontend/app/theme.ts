@@ -29,10 +29,7 @@ export const COLOR = {
 // Series line colours, in the order a chart assigns them.
 export const PLOT = [COLOR.us, COLOR.ca, COLOR.accent, '#B7A3D8', '#D8C48A'];
 
-// Peer countries on the international chart. Held apart by hue rather than by
-// lightness, so they stay separable where several lines overlap, and kept off
-// the orange and the two teals that Canada, the US and the OECD total already
-// hold. All are muted enough to sit on the slate field without vibrating.
+// Reserve distinct hues for peer countries.
 export const PEER = {
   violet: '#A78BD0',
   amber: '#DBC26E',
@@ -43,9 +40,7 @@ export const PEER = {
 
 export const RADIUS = { card: 9, control: 6 };
 
-// The surface every panel sits on. backgroundColor and backgroundImage are kept
-// separate on purpose: the `background` shorthand resets the image, so a caller
-// spreading this and setting a colour would silently drop the sheen.
+// Separate background color and image so variants do not reset both.
 export const card: CSSProperties = {
   backgroundColor: COLOR.panel,
   // a light top edge, the same finish the heatmap tiles carry. Shallow enough
@@ -62,9 +57,7 @@ export const wordmarkAccent: CSSProperties = {
   color: COLOR.accent,
 };
 
-// The same word at splash size, on /login and /status. Glass: a lit top edge,
-// the accent through the body, and the glow behind it bleeding past the glyphs.
-// Needs the size to read, so it does not belong anywhere in the desk chrome.
+// Splash wordmark treatment for login and status.
 export const wordmarkGlass: CSSProperties = {
   background:
     'linear-gradient(155deg, rgba(214,250,242,.95), rgba(26,168,151,.72) 58%, rgba(120,225,208,.88))',
@@ -131,18 +124,14 @@ export const control: CSSProperties = {
   textDecoration: 'none',
 };
 
-// Wide tables and charts have a floor below which they cannot usefully shrink.
-// Rather than let them push the page sideways on a half-width window, they
-// scroll inside their own panel.
+// Scroll wide tables within their panels.
 export const scrollX: CSSProperties = {
   overflowX: 'auto',
   // room for the scrollbar so it does not sit on the last row
   paddingBottom: 2,
 };
 
-// Two-column panels that fold to one when the window is too narrow to hold
-// both. auto-fit does this without a media query, which inline styles cannot
-// express anyway.
+// Collapse two-column panels when space runs out.
 export const splitWide: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',

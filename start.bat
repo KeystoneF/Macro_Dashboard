@@ -32,7 +32,7 @@ REM Postgres accepts the container start well before it accepts connections.
 REM docker-compose.yml defines a healthcheck, so poll that rather than guessing.
 set /a tries=0
 :wait
-docker inspect -f "{{.State.Health.Status}}" macrodesk-postgres 2>nul | findstr /i "healthy" >nul
+docker inspect -f "{{.State.Health.Status}}" macrodesk-postgres 2>nul | findstr /i /x "healthy" >nul
 if not errorlevel 1 goto ready
 set /a tries+=1
 if !tries! GEQ 40 (

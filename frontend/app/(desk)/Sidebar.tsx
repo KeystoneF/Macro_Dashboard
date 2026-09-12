@@ -23,7 +23,7 @@ const STATE_COLOR: Record<ModuleState, string> = {
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { user, end } = useSession();
+  const { user, end, ending } = useSession();
   const [collapsed, setCollapsed] = useState(false);
   // below this the desk is on half a screen or a tablet, and a 232px rail is
   // too much of the width to give up
@@ -68,7 +68,7 @@ export default function Sidebar() {
         )}
       </div>
 
-      <nav style={S.nav}>
+      <nav style={S.nav} aria-label="Desk modules">
         {GROUPS.map((group) => (
           <div key={group}>
             {!shut && <div style={S.groupLabel}>{group}</div>}
@@ -80,6 +80,8 @@ export default function Sidebar() {
                   key={m.slug}
                   href={`/${m.slug}`}
                   title={shut ? m.title : undefined}
+                  aria-label={m.title}
+                  aria-current={active ? 'page' : undefined}
                   // clicking the module already on screen is still a request
                   // for fresh figures, and that navigation remounts nothing
                   onClick={() => announceNav(m.slug)}
@@ -120,19 +122,17 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {!shut && (
-        <div style={S.foot}>
-          <span style={S.footWho} title={user.email}>
+        <div style={{ ...S.foot, ...(shut ? { padding: '12px 4px' } : {}) }}>
+          {!shut && <span style={S.footWho} title={user.email}>
             {user.name || user.email}
-          </span>
-          <Link href="/status" style={S.footLink}>
+          </span>}
+          {!shut && <Link href="/status" style={S.footLink}>
             Environment status
-          </Link>
-          <button style={S.footButton} onClick={end}>
-            Sign out
+          </Link>}
+          <button style={{ ...S.footButton, minHeight: 44, fontSize: 12, textAlign: shut ? 'center' : 'left' }} onClick={end} disabled={ending}>
+            {ending ? 'Signing out' : 'Sign out'}
           </button>
         </div>
-      )}
     </div>
   );
 }

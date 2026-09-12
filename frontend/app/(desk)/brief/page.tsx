@@ -39,9 +39,7 @@ type Panel = {
   snapshotError: string | null;
 };
 
-// One fact as the module that owns it pulled it. The value is a string here on
-// purpose: it is formatted where it was read, so nothing downstream can round
-// it a second time.
+// Facts arrive formatted by their source module.
 type Fact = {
   id: string;
   module: string;
@@ -110,6 +108,7 @@ export default function BriefPage() {
   const [period, setPeriod] = useState<Period>('daily');
   const [country, setCountry] = useState(ALL);
   const [panel, setPanel] = useState<Panel | null>(null);
+  const [panelCountry, setPanelCountry] = useState<string | null>(null);
   const [digest, setDigest] = useState<Digest | null>(null);
   const [board, setBoard] = useState<Board | null>(null);
   const [feed, setFeed] = useState<Feed | null>(null);
@@ -121,6 +120,7 @@ export default function BriefPage() {
   const tab = PERIODS.find((p) => p.key === period) ?? PERIODS[0];
 
   const mounted = useRef(true);
+  const requests = useRef({ markets: 0, news: 0, panel: 0, digest: 0 });
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -131,27 +131,35 @@ export default function BriefPage() {
   // fresh=1 skips the api's own quote cache, which is what a deliberate click
   // on the module is asking for
   const loadMarkets = useCallback((fresh = false) => {
+    const request = ++requests.current.markets;
     getJson<Board>(`/api/markets/brief${fresh ? '?fresh=1' : ''}`)
-      .then((b) => mounted.current && (setBoard(b), setError(null)))
-      .catch((e) => mounted.current && setError(e.message));
+      .then((b) => mounted.current && request === requests.current.markets && setBoard(b))
+      .catch((e) => mounted.current && request === requests.current.markets && setError(e.message));
   }, []);
 
   const loadNews = useCallback(() => {
+    const request = ++requests.current.news;
     getJson<Feed>('/api/news?window=30d&limit=300')
-      .then((f) => mounted.current && setFeed(f))
-      .catch((e) => mounted.current && setError(e.message));
+      .then((f) => mounted.current && request === requests.current.news && setFeed(f))
+      .catch((e) => mounted.current && request === requests.current.news && setError(e.message));
   }, []);
 
   const loadPanel = useCallback(() => {
+    const request = ++requests.current.panel;
     getJson<Panel>(`/api/brief/metrics?country=${country}`)
-      .then((b) => mounted.current && setPanel(b))
-      .catch((e) => mounted.current && setError(e.message));
+      .then((b) => {
+        if (!mounted.current || request !== requests.current.panel) return;
+        setPanel(b);
+        setPanelCountry(country);
+      })
+      .catch((e) => mounted.current && request === requests.current.panel && setError(e.message));
   }, [country]);
 
   const loadDigest = useCallback(() => {
+    const request = ++requests.current.digest;
     getJson<Digest>(`/api/brief/digest?window=${period}&country=${country}`)
-      .then((d) => mounted.current && setDigest(d))
-      .catch((e) => mounted.current && setError(e.message));
+      .then((d) => mounted.current && request === requests.current.digest && setDigest(d))
+      .catch((e) => mounted.current && request === requests.current.digest && setError(e.message));
   }, [period, country]);
 
   useEffect(() => {
@@ -189,9 +197,7 @@ export default function BriefPage() {
   // headlines of its own rather than every publisher's
   const feedless = country !== ALL && !picked?.feed;
 
-  // The window is measured from when the server pulled the feeds rather than
-  // from this machine's clock, so "the last 24 hours" means the day before the
-  // data was collected.
+  // Measure news windows from the server's fetch time.
   const shown = useMemo(() => {
     if (!feed) return { releases: [], headlines: [] };
     const cutoff = new Date(Date.parse(feed.fetchedAt) - tab.days * 864e5).toISOString();
@@ -250,12 +256,12 @@ export default function BriefPage() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: narrow ? '1fr' : 'minmax(0, 1.55fr) minmax(0, 1fr)',
+          gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'minmax(0, 1.55fr) minmax(0, 1fr)',
           gap: 16,
           alignItems: 'start',
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
           <Ranked digest={ranking} />
 
           <section style={card}>
@@ -286,18 +292,18 @@ export default function BriefPage() {
           </section>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
           <section style={card}>
             <h2 style={T.h2}>Key metrics</h2>
             <p style={T.desc}>
               {country === ALL ? 'Newest print first.' : 'Latest print, with its period.'}
             </p>
-            {!panel && <p style={S.quiet}>Loading</p>}
-            {panel && !panel.metrics.length && <p style={S.quiet}>No print on file for this country</p>}
-            {(panel?.metrics ?? []).map((m, i) => (
+            {(!panel || panelCountry !== country) && <p style={S.quiet}>Loading</p>}
+            {panel && panelCountry === country && !panel.metrics.length && <p style={S.quiet}>No print on file for this country</p>}
+            {(panelCountry === country ? panel?.metrics ?? [] : []).map((m, i) => (
               <MetricRow key={m.key} metric={m} last={i === panel!.metrics.length - 1} />
             ))}
-            {!!panel?.truncated && (
+            {panelCountry === country && !!panel?.truncated && (
               <p style={{ ...S.quiet, marginTop: 10 }}>
                 {panel.truncated} more across the{' '}
                 <Link href="/international" style={S.link}>
@@ -306,7 +312,7 @@ export default function BriefPage() {
                 .
               </p>
             )}
-            {panel?.snapshotError && (
+            {panelCountry === country && panel?.snapshotError && (
               <p style={{ ...S.quiet, color: COLOR.bad, marginTop: 10 }}>{panel.snapshotError}</p>
             )}
           </section>
@@ -350,8 +356,7 @@ export default function BriefPage() {
                       >
                         {fmtPct(r.changePct[tab.change])}
                       </td>
-                      {/* a price that is not moving because the feed is delayed
-                          looks exactly like a live one otherwise */}
+                      {/* Show quote age so stale prices are clear. */}
                       <td style={{ ...T.td, ...S.age, textAlign: 'right' }}>{age(r.quotedAt)}</td>
                     </tr>
                   ))}
@@ -375,9 +380,7 @@ export default function BriefPage() {
   );
 }
 
-// The panel design/1-daily-brief.html calls "Top Releases & Articles Ranked by
-// Model". The model orders the picks and writes the line; every figure on the
-// row is the one the owning module pulled.
+// Display sourced facts in model-ranked order.
 function Ranked({ digest }: { digest: Digest | null }) {
   const covered = (digest?.modules ?? [])
     .map((num) => MODULES.find((m) => m.num === num))

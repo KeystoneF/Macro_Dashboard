@@ -1,11 +1,5 @@
-// Instrument lists for the FX board, the commodity board and the sector tracker.
-// Every symbol here was checked against a live /batch-quote and a live
-// /stock-price-change response.
-//
-// `currency` is not decoration. Wheat and corn trade in USX, meaning US cents,
-// so a wheat print of 540 is $5.40 a bushel and not $540. FMP hands back the
-// number without the unit, so the unit is carried here and shown beside every
-// price.
+// Symbols and display units for the market boards.
+// USX means US cents; keep it distinct from USD.
 
 const FX = [
   { symbol: 'EURUSD', label: 'EUR/USD', group: 'Majors', currency: 'USD', decimals: 4 },
@@ -26,15 +20,7 @@ const COMMODITIES = [
   { symbol: 'BZUSD', label: 'Brent crude', group: 'Energy', currency: 'USD', unit: 'per barrel', decimals: 2 },
   { symbol: 'NGUSD', label: 'Natural gas', group: 'Energy', currency: 'USD', unit: 'per MMBtu', decimals: 3 },
 
-  // Spot, not the futures contract. GCUSD and SIUSD are FMP's Gold Futures and
-  // Silver Futures, and they read about 0.9% over spot on the basis, which is
-  // real but is not the number anyone means by "the gold price": an analyst
-  // checking it against Kitco or a search engine sees spot and reads the
-  // difference as an error. Spot is also the live one here, where FMP delays
-  // both metal futures by a flat ten minutes.
-  //
-  // Energy and the grains stay on futures below, because there the front
-  // contract is the quoted reference and there is no competing spot print.
+  // Use spot symbols for gold and silver. Other commodities use the provider's contracts.
   { symbol: 'XAUUSD', label: 'Gold', group: 'Metals', currency: 'USD', unit: 'per troy oz, spot', decimals: 2 },
   { symbol: 'XAGUSD', label: 'Silver', group: 'Metals', currency: 'USD', unit: 'per troy oz, spot', decimals: 3 },
   { symbol: 'HGUSD', label: 'Copper', group: 'Metals', currency: 'USD', unit: 'per lb', decimals: 4 },
@@ -43,13 +29,7 @@ const COMMODITIES = [
   { symbol: 'ZCUSX', label: 'Corn', group: 'Agriculture', currency: 'USX', unit: 'cents per bushel', decimals: 2 },
 ];
 
-// The five rows the brief's market panel carries, drawn from the same two FMP
-// calls every other board uses.
-//
-// The two index rows are funds, not the indices. This plan does not quote an
-// index: ^GSPC and ^GSPTSE are dropped from a batch quote without an error, so
-// every row on the board reads n/a, and /stock-price-change answers 402 for
-// them outright. The funds track the indices and are named as funds.
+// Brief benchmarks are tracking ETFs; this plan does not quote the indices.
 const BRIEF = [
   { symbol: 'XIC.TO', label: 'S&P/TSX Composite, XIC fund', group: 'Equity', currency: 'CAD', decimals: 2 },
   { symbol: 'SPY', label: 'S&P 500, SPY fund', group: 'Equity', currency: 'USD', decimals: 2 },
@@ -58,12 +38,7 @@ const BRIEF = [
   { symbol: 'XAUUSD', label: 'Gold', group: 'Commodities', currency: 'USD', unit: 'per troy oz, spot', decimals: 2 },
 ];
 
-// Two sector boards, one ETF per sector on each, and the benchmark the
-// relative column is measured against. Canada is the shorter board: the TSX
-// sector funds cover six of the eleven GICS sectors, so a sector missing here
-// is a fund that does not exist rather than a quote that failed.
-//
-// The two boards are not quoted in the same currency, so each carries its own.
+// Sector ETFs and their benchmarks. Canadian funds cover six sectors.
 const SECTOR_BOARDS = {
   us: {
     key: 'us',
@@ -102,7 +77,7 @@ const SECTOR_BOARDS = {
   },
 };
 
-const sectorBoard = (key) => SECTOR_BOARDS[String(key || 'us')] || null;
+const sectorBoard = (key = 'us') => Object.hasOwn(SECTOR_BOARDS, key || 'us') ? SECTOR_BOARDS[key || 'us'] : null;
 
 // every symbol either board draws, for the routes that need one flat list
 const SECTOR_SYMBOLS = Object.values(SECTOR_BOARDS).flatMap((b) => [...b.sectors, b.benchmark]);

@@ -38,10 +38,7 @@ export default function NewsPage() {
   const [feed, setFeed] = useState<Feed | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // One fetch of the widest window, then every control filters what is already
-  // here. Filtering server side meant a round trip per keystroke in the search
-  // box, which is what made this page feel slow: the feeds answer in under half
-  // a second, but typing "inflation" was nine requests and nine re-renders.
+  // Fetch the widest window once, then filter locally.
   useEffect(() => {
     let live = true;
     const load = () =>
@@ -57,10 +54,7 @@ export default function NewsPage() {
     };
   }, []);
 
-  // The window is measured from when the server pulled the feeds, not from the
-  // browser's clock. It is the honest reference: "the last 24 hours" means the
-  // day before this data was collected, and it does not shift if a machine's
-  // time is off.
+  // Measure news windows from the server's fetch time.
   const shown = useMemo(() => {
     if (!feed) return [];
     const cutoff = new Date(

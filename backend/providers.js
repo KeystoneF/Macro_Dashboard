@@ -1,33 +1,32 @@
-// One place for the three upstreams. The catalogue route and the discovery
-// search both talk to them, and both must share the same FRED rate limiter:
-// two independent queues would each stay under 120 requests a minute and
-// together sail past it.
+// Shared provider clients, cache and FRED request queue.
 
+const fetch = require('./http');
 const VALET_BASE = 'https://www.bankofcanada.ca/valet';
 const FRED_BASE = 'https://api.stlouisfed.org/fred';
 const STATCAN_BASE = 'https://www150.statcan.gc.ca/t1/wds/rest';
 
 const cache = new Map();
 
-// Keys carry request input: the start date on a series, the text of a search.
-// Without a ceiling the map is a memory leak anyone signed in can drive, so it
-// is bounded. A Map iterates in insertion order and every write re-inserts, so
-// the first key out is the one written longest ago.
+// Bound caches whose keys include user input.
 const CACHE_MAX = 2_000;
 
-// Holds the promise, not the value: two analysts asking for the same series at
-// once should share one upstream call rather than race to make two.
+// Share in-flight requests; a zero TTL bypasses stored results.
 function cached(key, ttl, fn) {
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < ttl) return hit.data;
-  const data = fn().catch((err) => {
-    cache.delete(key); // a failure must not be served for the next half hour
+  if (hit && (hit.pending || (ttl > 0 && Date.now() < hit.expiresAt))) return hit.data;
+  const entry = { pending: true, expiresAt: 0, data: null };
+  entry.data = Promise.resolve().then(fn).then((data) => {
+    entry.pending = false;
+    entry.expiresAt = Date.now() + ttl;
+    return data;
+  }).catch((err) => {
+    if (cache.get(key) === entry) cache.delete(key);
     throw err;
   });
   cache.delete(key);
-  cache.set(key, { at: Date.now(), data });
+  cache.set(key, entry);
   if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
-  return data;
+  return entry.data;
 }
 
 const FAN_OUT = 4;
@@ -46,17 +45,10 @@ async function pool(items, fn) {
   return out;
 }
 
-// FRED allows 120 requests a minute, and resolving the catalogue asks about
-// every FRED series in it. Past the limit it answers 403 on everything for the
-// rest of the window, which reads as a dead key rather than as backpressure, so
-// every FRED call is spaced instead of merely capped in flight.
+// Space FRED dispatches to stay within its request budget.
 const FRED_GAP_MS = 550;
 
-// Two lanes rather than one chain. The catalogue freshness sweep is one call
-// per FRED series and holds the queue for the better part of a minute; behind
-// it, opening the explorer or adding a searched series waited eight to ten
-// seconds for a single chart. Interactive calls go ahead of sweep calls, which
-// only ever delays a column that is already allowed to fill in late.
+// Prioritize chart requests over catalogue freshness lookups.
 const fredWaiting = { live: [], background: [] };
 let fredPumping = false;
 
@@ -74,6 +66,9 @@ function fredPump() {
 }
 
 function fredFetch(url, { background = false } = {}) {
+  if (fredWaiting.live.length + fredWaiting.background.length >= 100) {
+    return Promise.reject(new Error('FRED request queue is full, try again shortly'));
+  }
   return new Promise((resolve, reject) => {
     fredWaiting[background ? 'background' : 'live'].push({ url, resolve, reject });
     if (!fredPumping) fredPump();
@@ -84,15 +79,14 @@ const SOURCE_NAME = { boc: 'Bank of Canada', fred: 'FRED', statcan: 'Statistics 
 
 
 const num = (v) => {
-  const n = Number.parseFloat(v);
+  if ((typeof v !== 'number' && typeof v !== 'string') || String(v).trim() === '') return null;
+  const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
 
-// Valet single-series shape:
-//   { observations: [ { d: "2026-08-06", "FXUSDCAD": { v: "1.3712" } } ] }
-// A suppressed print comes back as an empty string rather than a missing row.
+// Valet stores each series value under its ID; suppressed values are empty.
 async function bocObs(id, start) {
-  const r = await fetch(`${VALET_BASE}/observations/${id}/json?start_date=${start}`);
+  const r = await fetch(`${VALET_BASE}/observations/${encodeURIComponent(id)}/json?start_date=${start}`);
   if (!r.ok) throw new Error(`valet ${id} ${r.status}`);
   const body = await r.json();
 
@@ -128,50 +122,31 @@ async function fredObs(id, start, units) {
     .filter((o) => o.v !== null);
 }
 
-// Statistics Canada Web Data Service. Three things about it shape this code.
-//
-// It answers with an HTML error page, not JSON, when its database is briefly
-// unreachable, so the body is inspected before it is parsed and the call is
-// retried rather than thrown at the caller as a parse error.
-//
-// It does not answer in request order. Results carry their own vectorId and
-// must be keyed by it; reading them off by index silently pairs one series'
-// values with another series' name, which is exactly the kind of wrong that
-// looks right.
-//
-// And it has no start-date parameter, only "latest N periods", so the window is
-// sized from the frequency and then trimmed to the dates actually asked for.
+// StatCan can return HTML during outages. Retry those responses.
+// Match observations by vector ID, then trim to the requested date range.
 const SC_RETRIES = 4;
 
-// Not everything on the service is a POST: the cube list is a GET, and asking
-// for it with a body comes back 405.
-async function statcanGet(path) {
-  let last = null;
+// The cube list uses GET; vector queries use POST.
+async function statcanRequest(path, options) {
+  let last;
   for (let attempt = 0; attempt < SC_RETRIES; attempt++) {
-    const r = await fetch(`${STATCAN_BASE}/${path}`);
-    const text = await r.text();
-    if (r.ok && !text.startsWith('<')) return JSON.parse(text);
-    last = `statcan ${path} ${r.status}`;
-    await new Promise((done) => setTimeout(done, 1500 * (attempt + 1)));
+    const response = await fetch(`${STATCAN_BASE}/${path}`, options);
+    const text = (await response.text()).trimStart();
+    if (response.ok && !text.startsWith('<')) return JSON.parse(text);
+    last = new Error(`statcan ${path} ${response.status}`);
+    if (attempt < SC_RETRIES - 1) {
+      await new Promise((done) => setTimeout(done, 1500 * (attempt + 1)));
+    }
   }
-  throw new Error(last || `statcan ${path} failed`);
+  throw last;
 }
 
-async function statcanPost(path, body) {
-  let last = null;
-  for (let attempt = 0; attempt < SC_RETRIES; attempt++) {
-    const r = await fetch(`${STATCAN_BASE}/${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const text = await r.text();
-    if (r.ok && !text.startsWith('<')) return JSON.parse(text);
-    last = `statcan ${path} ${r.status}`;
-    await new Promise((done) => setTimeout(done, 1500 * (attempt + 1)));
-  }
-  throw new Error(last || `statcan ${path} failed`);
-}
+const statcanGet = (path) => statcanRequest(path);
+const statcanPost = (path, body) => statcanRequest(path, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+});
 
 const PERIODS_PER_YEAR = { Daily: 260, Weekly: 53, Biweekly: 27, Monthly: 12, Quarterly: 4, Annual: 1 };
 
@@ -214,9 +189,7 @@ function observations(meta, start) {
   return fredObs(meta.id, start, meta.fredUnits);
 }
 
-// Date of the last print, which is what tells an analyst whether a series has
-// gone stale. FRED carries it in the series metadata, so asking for that beats
-// pulling a year of daily observations and reading the last row off the end.
+// Use FRED metadata to check freshness without downloading observations.
 async function latestDate(meta, { background = false } = {}) {
   if (meta.src === 'fred') {
     const key = process.env.FRED_API_KEY;
@@ -246,11 +219,12 @@ async function latestDate(meta, { background = false } = {}) {
   return obs.length ? obs[obs.length - 1].d : null;
 }
 
-// A start date reaches Valet inside a query string that is built by hand, so
-// anything but a real date could append parameters of its own to the upstream
-// request. Checked here rather than in each route, because both routes that
-// take one hand it to the same fetch.
-const isoDate = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v ?? '')) ? String(v) : null);
+// Validate dates before they reach provider URLs.
+function isoDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const time = Date.parse(value);
+  return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value ? value : null;
+}
 
 function isoAgo(years) {
   const d = new Date();
@@ -258,14 +232,9 @@ function isoAgo(years) {
   return d.toISOString().slice(0, 10);
 }
 
-// Last print per series. Spacing the FRED calls means resolving all 119 takes
-// the better part of a minute, so it runs in the background and the catalogue
-// endpoint answers immediately with whatever has landed. A blocking version
-// made every cold request start its own copy of the same sweep, and the
 
-// StatCan publishes a value alongside a scalar factor and the value is
-// expressed IN that factor, so the scale belongs in the units string or the
-// figure is wrong by three or six orders of magnitude.
+
+// Keep StatCan's scalar factor in the units; values already use that scale.
 const SCALAR_UNITS = {
   0: '', 1: 'Tens', 2: 'Hundreds', 3: 'Thousands', 4: 'Tens of thousands',
   5: 'Hundreds of thousands', 6: 'Millions', 7: 'Tens of millions',
@@ -277,9 +246,7 @@ const SC_FREQUENCY = {
   7: 'Bimonthly', 9: 'Quarterly', 11: 'Semi-annual', 12: 'Annual',
 };
 
-// Label, units and frequency for a series that is not in the curated catalogue.
-// Both matter downstream: the explorer splits axes by units and breaks chart
-// lines on the series' own cadence.
+// Provider metadata supplies chart labels, units and cadence.
 async function describeSeries(src, id) {
   if (src === 'fred') {
     const key = process.env.FRED_API_KEY;
@@ -301,9 +268,7 @@ async function describeSeries(src, id) {
   if (src === 'boc') {
     const r = await fetch(`${VALET_BASE}/series/${encodeURIComponent(id)}/json`);
     if (!r.ok) throw new Error(`valet ${id} ${r.status}`);
-    // seriesDetails, plural. Valet's single-series response uses the plural
-    // where its observation response uses the singular, and reading the wrong
-    // one gives an empty object and a chart labelled with the raw id.
+    // Valet's metadata endpoint uses seriesDetails (plural).
     const detail = (await r.json()).seriesDetails || {};
     return {
       label: detail.label || id,

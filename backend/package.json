@@ -4,6 +4,7 @@
   "private": true,
   "main": "server.js",
   "scripts": {
+    "test": "node --test",
     "dev": "nodemon server.js",
     "start": "node server.js",
     "migrate": "node sql/migrate.js",

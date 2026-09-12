@@ -1,36 +1,34 @@
-// Fixed window counters. Sign-in limits on two of them at once: the address
-// that was typed, and the address it was typed from.
-//
-// Keys arrive from an endpoint that has to stay open, so entries older than the
-// window are swept rather than kept: without that, anyone can grow the map
-// forever by sending a new key each time.
-const SWEEP_MS = 5 * 60_000;
-
-function limiter({ max, windowMs }) {
+// Reserve attempts before async work; concurrent requests share the same budget.
+function limiter({ max, windowMs, maxKeys = 10_000 }) {
   const hits = new Map();
 
-  const sweep = setInterval(() => {
-    const cutoff = Date.now() - windowMs;
-    for (const [key, rec] of hits) if (rec.first < cutoff) hits.delete(key);
-  }, SWEEP_MS);
+  function sweep(now) {
+    for (const [key, rec] of hits) {
+      if (now >= rec.until) hits.delete(key);
+    }
+  }
 
-  // a bare interval keeps the process alive on shutdown
-  sweep.unref();
+  const timer = setInterval(() => sweep(Date.now()), Math.min(windowMs, 300_000));
+  timer.unref();
 
   return {
-    blocked(key) {
-      const rec = hits.get(key);
-      if (!rec || Date.now() - rec.first > windowMs) return false;
-      return rec.count >= max;
-    },
-
-    record(key) {
+    take(key) {
       const now = Date.now();
-      const rec = hits.get(key);
-      if (!rec || now - rec.first > windowMs) hits.set(key, { first: now, count: 1 });
-      else rec.count += 1;
+      let rec = hits.get(key);
+      if (rec && now >= rec.until) {
+        hits.delete(key);
+        rec = null;
+      }
+      if (!rec) {
+        if (hits.size >= maxKeys) sweep(now);
+        if (hits.size >= maxKeys) return false;
+        rec = { count: 0, until: now + windowMs };
+        hits.set(key, rec);
+      }
+      if (rec.count >= max) return false;
+      rec.count++;
+      return true;
     },
-
     clear: (key) => hits.delete(key),
   };
 }

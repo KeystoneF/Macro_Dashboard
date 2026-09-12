@@ -1,4 +1,5 @@
 const express = require('express');
+const fetch = require('../http');
 const router = express.Router();
 const { XMLParser } = require('fast-xml-parser');
 const { FEEDS, USER_AGENT, WINDOWS } = require('../feeds');
@@ -18,17 +19,10 @@ const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_
 
 const asArray = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
-// Feed items become href on a page an analyst clicks, and the URL is whatever
-// the publisher put in the XML. React neutralises javascript: and browsers
-// refuse top-level data: navigation, but both are someone else's mitigation.
-// Only the two schemes a news link should ever use get through.
+// Only allow HTTP(S) links from publishers.
 const safeLink = (url) => (/^https?:\/\//i.test(String(url ?? '').trim()) ? String(url).trim() : null);
 
-// StatCan writes Atom titles as XHTML, so a title arrives as a tree of div and
-// span nodes rather than a string and reading #text off the top finds nothing.
-// A node's own text comes before its children's, which keeps the refper span in
-// "Canada's balance of international payments, second quarter 2026" at the end
-// where it was written.
+// Flatten Atom XHTML titles while preserving parent text.
 function textOf(node) {
   if (node == null) return '';
   if (typeof node !== 'object') return String(node);
@@ -43,9 +37,7 @@ function textOf(node) {
   return out;
 }
 
-// Feed text arrives as HTML fragments with entities. The UI renders it as plain
-// text, so tags come out and the handful of entities that actually show up go
-// back to their characters.
+// Convert feed HTML to plain text for display.
 function plain(html) {
   return String(html ?? '')
     .replace(/<[^>]*>/g, ' ')
@@ -65,9 +57,7 @@ const SUMMARY_MAX = 260;
 
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
-// Publishers disagree on the date field and on its format. RFC 822 from RSS,
-// ISO from Atom and Dublin Core. Anything unparseable is dropped rather than
-// dated today, which would float an undated item to the top of the feed.
+// Drop undated items instead of assigning them today's date.
 function when(...candidates) {
   for (const c of candidates) {
     if (!c) continue;
@@ -188,7 +178,7 @@ async function collect() {
 // One sweep at a time. Without this, four analysts opening the page together
 // each start their own fan-out across six publishers.
 function load() {
-  if (Date.now() - cached.at < CACHE_MS && cached.items.length) return Promise.resolve(cached);
+  if (cached.at && Date.now() - cached.at < CACHE_MS) return Promise.resolve(cached);
   if (inFlight) return inFlight;
 
   inFlight = collect()
@@ -203,28 +193,27 @@ function load() {
   return inFlight;
 }
 
-// Warmed at boot and refreshed just under the cache life, so a request always
-// finds a warm cache. Without this one unlucky analyst every five minutes waits
-// out a fan-out across six publishers.
+// Refresh before cache expiry so most requests find ready data.
 const REFRESH_MS = CACHE_MS - 30_000;
 
-load().catch((err) => console.error('news warm failed:', redact(err.message)));
-
-const refresh = setInterval(() => {
-  cached = { ...cached, at: 0 };
-  load().catch((err) => console.error('news refresh failed:', redact(err.message)));
-}, REFRESH_MS);
-
-refresh.unref();
+router.startRefresh = () => {
+  load().catch((err) => console.error('news warm failed:', redact(err.message)));
+  const refresh = setInterval(() => {
+    cached = { ...cached, at: 0 };
+    load().catch((err) => console.error('news refresh failed:', redact(err.message)));
+  }, REFRESH_MS);
+  refresh.unref();
+  return () => clearInterval(refresh);
+};
 
 router.get('/', async (req, res) => {
   const window = String(req.query.window || '7d');
   const country = String(req.query.country || 'all');
   const feedId = String(req.query.source || 'all');
   const q = String(req.query.q || '').toLowerCase().trim();
-  const limit = Math.min(300, Number(req.query.limit) || 120);
+  const limit = Math.max(1, Math.min(300, Math.floor(Number(req.query.limit) || 120)));
 
-  if (!(window in WINDOWS)) return res.status(400).json({ error: `unknown window: ${window}` });
+  if (!Object.hasOwn(WINDOWS, window)) return res.status(400).json({ error: `unknown window: ${window}` });
 
   try {
     const { items, sources } = await load();

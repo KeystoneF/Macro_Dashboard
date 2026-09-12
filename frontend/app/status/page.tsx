@@ -34,7 +34,7 @@ export default function StatusPage() {
   }, []);
 
   const rows: [string, boolean | null, string][] = [
-    ['Express API', apiUp, apiUp === false ? 'not reachable on :4000' : ''],
+    ['Express API', apiUp, apiUp === false ? 'not reachable' : ''],
     ['PostgreSQL', health?.db ?? null, health?.dbError ?? ''],
     ['FMP key loaded', health?.fmpKey ?? null, ''],
     ['OpenAI key loaded', health?.openAiKey ?? null, "the brief's ranked panel falls back to newest first without it"],
@@ -69,7 +69,7 @@ export default function StatusPage() {
             <h1 style={S.wordmark}>
               <span>KeyStone</span> <span style={T.wordmarkGlass}>MacroDesk</span>
             </h1>
-            <p style={S.sub}>Local environment status</p>
+            <p style={S.sub}>Service status</p>
           </div>
         </header>
 

@@ -1,8 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { pool } = require('../db');
 
-// 12 rounds: slow enough to matter against an offline crack, fast enough that a
-// sign-in does not feel broken on the box this runs on.
+// Keep password hashing deliberately expensive.
 const ROUNDS = 12;
 
 const byEmail = async (email) => {
@@ -23,7 +22,6 @@ const byId = async (id) => {
 
 async function create({ email, name, password }) {
   const hash = password ? await bcrypt.hash(password, ROUNDS) : null;
-  // no insertId in postgres, the new id has to be asked for on the way out
   const { rows } = await pool.query(
     'INSERT INTO users (email, name, password_hash) VALUES ($1, $2, $3) RETURNING id',
     [String(email).trim().toLowerCase(), name, hash],
@@ -31,8 +29,7 @@ async function create({ email, name, password }) {
   return { id: rows[0].id, email, name };
 }
 
-// Always runs a comparison, even when the account does not exist, so the time
-// taken does not tell an attacker which addresses are registered.
+// Run bcrypt for unknown accounts too, to reduce timing differences.
 const DUMMY_HASH = '$2a$12$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 async function authenticate(email, password) {
@@ -45,12 +42,11 @@ async function authenticate(email, password) {
   return { id: user.id, email: user.email, name: user.name, tokenVersion: user.token_version };
 }
 
-// Ends every token this analyst is carrying, which is what signing out asks for.
-// Returns the new version so the caller does not have to read it back.
-async function bumpTokenVersion(id) {
+// Revoke this version without affecting sessions issued after an earlier logout.
+async function bumpTokenVersion(id, version) {
   const { rows } = await pool.query(
-    'UPDATE users SET token_version = token_version + 1 WHERE id = $1 RETURNING token_version',
-    [id],
+    'UPDATE users SET token_version = token_version + 1 WHERE id = $1 AND token_version = $2 RETURNING token_version',
+    [id, version],
   );
   return rows[0] ? rows[0].token_version : null;
 }

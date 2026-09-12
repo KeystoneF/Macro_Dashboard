@@ -43,6 +43,8 @@ npm-debug.log*
 yarn-error.log*
 logs/
 coverage/
+test-results/
+playwright-report/
 *.sqlite
 *.sqlite3
 dump.sql
@@ -51,3 +53,4 @@ dump.sql
 *.zip
 *.bak
 *.tmp
+README.md

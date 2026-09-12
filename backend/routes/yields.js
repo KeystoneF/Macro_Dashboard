@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { fail } = require('../redact');
-const { cached, isoDate } = require('../providers');
+const { cached, isoDate, fredFetch, num } = require('../providers');
+const fetch = require('../http');
 const { row } = require('../csv');
 
 const VALET = 'https://www.bankofcanada.ca/valet/observations';
@@ -9,11 +10,8 @@ const FRED = 'https://api.stlouisfed.org/fred/series/observations';
 
 const CACHE_MS = 15 * 60_000; // yields print once a day, no reason to hammer either source
 
-// Maturity grid. Canada cannot fill every rung and that is a data fact, not a bug:
-//   1M   BoC stopped issuing after the CDOR wind-down, so there is no usable series
-//   20Y  Canada publishes no 20-year benchmark
-// Short-end Canada comes from T-bill auctions, which print weekly on Tuesdays,
-// so the front of the CA curve is a different as-of date than the back. We report both.
+// Canada has no usable 1M or 20Y series here.
+// T-bill auction dates can lag bond dates; report both.
 const GRID = [
   { key: '1M', months: 1, ca: null, us: 'DGS1MO' },
   { key: '3M', months: 3, ca: 'V80691303', caGroup: 'tbill', us: 'DGS3MO' },
@@ -33,19 +31,7 @@ const CA_GAP = {
   '20Y': 'BoC publishes no 20-year benchmark',
 };
 
-const num = (v) => {
-  const n = Number.parseFloat(v);
-  return Number.isFinite(n) ? n : null;
-};
-
-// Valet group response: { observations: [ { d: "2026-08-06", "SERIES.ID": { v: "2.85" } } ] }
-//
-// Two traps here, both found against live data:
-//   1. `recent=N` is unreliable on groups. Valet accepts it and then returns a window
-//      we did not ask for, so we pass an explicit date range instead.
-//   2. Row order is not guaranteed, and a group's series do not all end on the same day
-//      (the dead 1-month bill series is years behind the rest of its group). So we take
-//      the newest value per series rather than trusting one shared "latest row".
+// Use explicit date ranges and find each series' latest valid value.
 async function valetGroup(group, endDate) {
   const end = endDate || new Date().toISOString().slice(0, 10);
   const start = new Date(new Date(end).getTime() - 400 * 864e5).toISOString().slice(0, 10);
@@ -88,7 +74,7 @@ async function fredSeries(id, endDate) {
   });
   if (endDate) params.set('observation_end', endDate);
 
-  const res = await fetch(`${FRED}?${params}`);
+  const res = await fredFetch(`${FRED}?${params}`);
   if (!res.ok) throw new Error(`fred ${id} ${res.status}`);
   const body = await res.json();
 
@@ -111,10 +97,7 @@ function spreadsFor(points, field) {
   };
 }
 
-// Both routes below need the same payload, so it is built once here. The CSV
-// route used to fetch its own JSON endpoint over HTTP, which broke the moment
-// the API required a session: the internal request carried no cookie and came
-// back 401. An endpoint should never call itself.
+// Share curve data between JSON and CSV routes.
 async function curveFor(date) {
   const [bonds, bills, ...us] = await cached(`yields:${date || 'latest'}`, CACHE_MS, () =>
     Promise.all([

@@ -1,6 +1,4 @@
-// Robert Shiller's Irrational Exuberance dataset, which is the source GuruFocus
-// was redrawing: the mean of the CAPE column is the 17.8 it printed as the
-// all-time average.
+// Read CAPE observations from Robert Shiller's dataset.
 
 const XLSX = require('xlsx');
 const { USER_AGENT } = require('./feeds');
@@ -27,9 +25,7 @@ const CAPE = 12;
 const TIMEOUT_MS = 30_000; // a hung outbound connection otherwise reports nothing at all
 const DEBUG = process.env.SHILLER_DEBUG === '1';
 
-// What the last download did, step by step. shillerdata.com can answer a
-// datacentre ip differently than it answers a desk, and the trace is the only
-// way to see which step changed: read it back off /api/valuation/shiller/diag.
+// Keep a download trace for the authenticated diagnostics endpoint.
 let trace = [];
 
 function step(name, detail = {}) {

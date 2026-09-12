@@ -34,6 +34,21 @@ a {
   text-decoration: none;
 }
 
+:focus-visible {
+  outline: 2px solid #5fd8c6;
+  outline-offset: 3px;
+}
+
+html {
+  color-scheme: dark;
+  scrollbar-color: #51606b #1b2530;
+}
+
+::selection {
+  background: #5fd8c6;
+  color: #1b2530;
+}
+
 /* One rule that genuinely needs a media query: the page gutter. Twenty-eight
    pixels a side is a meaningful share of a half-width window. The sidebar
    collapses itself in Sidebar.tsx rather than being overridden from here. */

@@ -1,52 +1,44 @@
 const { Pool } = require('pg');
+const { redact, describe } = require('./redact');
 
-// Render hands the whole connection over as one string, local docker sets the
-// parts, so the string wins when it is there.
-const url = process.env.DATABASE_URL;
+function connectionOptions(env = process.env) {
+  const url = env.DATABASE_URL ? new URL(env.DATABASE_URL) : null;
+  const host = url?.hostname || env.DB_HOST || 'localhost';
+  const local = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(host);
+  const sslMode = env.DB_SSL ?? (url?.searchParams.get('sslmode') === 'disable' ? 'false' : undefined);
+  const useTls = sslMode === 'true' || (sslMode !== 'false' && !local);
+  const ca = env.DB_CA?.replace(/\\n/g, '\n');
 
-// A managed host refuses a plain connection, and Render's chain is not in the
-// container trust store. Local docker speaks no TLS at all, so this follows
-// DB_SSL and otherwise turns on only for a url pointing off this machine.
-//
-// DB_CA is the host's own certificate, which is what turns the connection from
-// encrypted into encrypted and checked: without one, nothing says the far end
-// is the database rather than whatever answered. Render publishes its chain.
-// An env var cannot hold a real newline, so an escaped one is read as one.
-function sslMode() {
-  const set = process.env.DB_SSL;
-  if (set === 'false') return false;
+  // URL SSL options otherwise replace pg's explicit TLS configuration.
+  if (url) {
+    for (const name of ['sslmode', 'sslcert', 'sslkey', 'sslrootcert']) url.searchParams.delete(name);
+  }
 
-  const ca = process.env.DB_CA ? process.env.DB_CA.replace(/\\n/g, '\n') : null;
-  const tls = ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false };
-
-  if (set === 'true') return tls;
-  return url && !/@(localhost|127\.0\.0\.1)[:/]/.test(url) ? tls : false;
+  return {
+    ...(url ? { connectionString: url.toString() } : {
+      host,
+      port: Number(env.DB_PORT) || 5432,
+      user: env.DB_USER,
+      password: env.DB_PASSWORD,
+      database: env.DB_NAME,
+    }),
+    ssl: useTls ? {
+      rejectUnauthorized: Boolean(ca) || env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
+      ...(ca ? { ca } : {}),
+    } : false,
+    max: 10,
+    connectionTimeoutMillis: 3000,
+    statement_timeout: 10_000,
+    query_timeout: 12_000,
+  };
 }
 
-// pooled from the start, connection-per-request bit us on the last project
-const pool = new Pool({
-  ...(url
-    ? { connectionString: url }
-    : {
-        host: process.env.DB_HOST,
-        port: Number(process.env.DB_PORT) || 5432,
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
-        database: process.env.DB_NAME,
-      }),
-  ssl: sslMode(),
-  max: 10,
-  connectionTimeoutMillis: 3000, // fail fast, otherwise /api/health just hangs when postgres is down
-});
-
-// An idle client dropped by the server raises on the pool with no query to
-// attach to, and pg treats an unhandled one as fatal. Render's free tier drops
-// idle connections, so this is the normal case rather than an edge.
-pool.on('error', (err) => console.error('idle client dropped:', err.code || err.message));
+const pool = new Pool(connectionOptions());
+pool.on('error', (err) => console.error('idle client dropped:', redact(describe(err))));
 
 async function ping() {
   const { rows } = await pool.query('SELECT 1 AS ok');
   return rows[0].ok === 1;
 }
 
-module.exports = { pool, ping };
+module.exports = { pool, ping, connectionOptions };

@@ -3,20 +3,17 @@ const router = express.Router();
 const { FX, COMMODITIES, BRIEF, SECTOR_SYMBOLS, sectorBoard, PERIODS } = require('../instruments');
 const { fail } = require('../redact');
 const { row } = require('../csv');
+const { cached, num } = require('../providers');
+const fetch = require('../http');
 
 const BASE = 'https://financialmodelingprep.com/stable';
 
-// A quote held for a minute, behind a page that also polls once a minute, put
-// a price on screen that could be two minutes old under a label reading
-// "Quoted" and the current clock. Held only long enough now to collapse a
-// burst: two tabs, or a reload landing on top of a poll. `?fresh=1` skips it
-// outright, which is what a deliberate click on the module gets.
+// Briefly cache quotes to combine bursts; fresh=1 bypasses stored quotes.
 const QUOTE_CACHE_MS = 5_000;
 // Bars that have already closed, and the constituent list, do not move.
 const CACHE_MS = 60_000;
-const cache = new Map();
 
-// prices are passthrough, not stored. only official stats go to postgres.
+// Prices stay in memory; PostgreSQL stores accounts.
 async function fmp(path, ttl = CACHE_MS) {
   const key = process.env.FMP_API_KEY;
   if (!key) throw new Error('FMP_API_KEY missing');
@@ -24,40 +21,29 @@ async function fmp(path, ttl = CACHE_MS) {
   const sep = path.includes('?') ? '&' : '?';
   const url = `${BASE}${path}${sep}apikey=${key}`;
 
-  const hit = cache.get(url);
-  if (hit && Date.now() - hit.at < ttl) return hit.data;
+  return cached(`fmp:${path}`, ttl, async () => {
+    const r = await fetch(url);
 
-  const r = await fetch(url);
-
-  // A symbol or interval outside the plan answers with a sentence of prose
-  // where the JSON should be, sometimes under a 402 and sometimes under a 200,
-  // so the body is read before the status is judged. Parsing first reported a
-  // syntax error instead of what actually happened.
-  const text = await r.text();
-  if (!text.startsWith('[') && !text.startsWith('{')) {
-    const err = new Error(`fmp declined this request: ${text.slice(0, 120)}`);
-    err.declined = /subscription|premium|special endpoint/i.test(text);
-    throw err;
-  }
-  if (!r.ok) throw new Error(`fmp ${r.status}`);
-  const data = JSON.parse(text);
-
-  cache.set(url, { at: Date.now(), data });
-  return data;
+    // FMP sometimes returns subscription errors as plain text under HTTP 200.
+    const text = (await r.text()).trim();
+    if (!text.startsWith('[') && !text.startsWith('{')) {
+      const err = new Error(`fmp declined this request: ${text.slice(0, 120)}`);
+      err.declined = /subscription|premium|special endpoint/i.test(text);
+      throw err;
+    }
+    if (!r.ok) throw new Error(`fmp ${r.status}`);
+    const data = JSON.parse(text);
+    if (!Array.isArray(data)) {
+      const message = data?.['Error Message'] || data?.error || data?.message || 'unexpected response';
+      const err = new Error(`fmp declined this request: ${String(message).slice(0, 120)}`);
+      err.declined = /subscription|premium|special endpoint/i.test(String(message));
+      throw err;
+    }
+    return data;
+  });
 }
 
-const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
-
-// Batching is the whole game here, and the two endpoints disagree about how.
-//
-// /batch-quote takes `symbols` plural. /quote takes `symbol` singular and
-// handles exactly one: give it a comma-separated list and it answers 200 with
-// an empty array rather than an error, so a board built on it renders every row
-// as n/a and looks like a dead key.
-//
-// /stock-price-change takes `symbol` singular but does accept a list, and works
-// for FX pairs and commodities despite the name. That is one call for every
-// period column on a board.
+// batch-quote uses symbols; stock-price-change uses symbol for a list.
 const quoteBatch = (symbols, fresh = false) =>
   fmp(`/batch-quote?symbols=${symbols.join(',')}`, fresh ? 0 : QUOTE_CACHE_MS);
 const changeBatch = (symbols) => fmp(`/stock-price-change?symbol=${symbols.join(',')}`);
@@ -68,9 +54,7 @@ const indexBy = (rows, key = 'symbol') => {
   return m;
 };
 
-// One row per instrument: the live quote, plus every period column. A symbol
-// the upstream did not return keeps its row and reports n/a rather than
-// vanishing from a board an analyst is reading as complete.
+// Keep a row with missing values when the provider omits an instrument.
 function buildRows(instruments, quotes, changes) {
   return instruments.map((inst) => {
     const q = quotes.get(inst.symbol);
@@ -81,11 +65,9 @@ function buildRows(instruments, quotes, changes) {
     return {
       ...inst,
       name: q ? q.name : null,
-      // when this price was struck, not when we asked. FMP delays some
-      // instruments and not others: gold runs about ten minutes behind while
-      // the majors are seconds behind, and a board that stamps every row with
-      // the time of its own fetch says none of that.
-      quotedAt: q && q.timestamp ? new Date(q.timestamp * 1000).toISOString() : null,
+      // Use the provider's quote time so delayed prices remain visible.
+      quotedAt: q && num(q.timestamp) !== null && Number.isFinite(new Date(Number(q.timestamp) * 1000).getTime())
+        ? new Date(Number(q.timestamp) * 1000).toISOString() : null,
       price: q ? num(q.price) : null,
       dayChange: q ? num(q.change) : null,
       dayLow: q ? num(q.dayLow) : null,
@@ -107,9 +89,7 @@ async function instrumentRows(instruments, fresh) {
 // need the cache skipped the way the last price does.
 const wantsFresh = (req) => req.query.fresh === '1';
 
-// The oldest print on the board, which is the one that decides how current the
-// board as a whole is. Reporting the newest would hide the delayed rows behind
-// the live ones.
+// The oldest quote determines the board's freshness.
 const oldestQuote = (rows) => {
   const stamps = rows.map((r) => r.quotedAt).filter(Boolean).sort();
   return stamps.length ? stamps[0] : null;
@@ -160,9 +140,7 @@ async function sectorRows(board, fresh) {
   const rows = buildRows(board.sectors, q, c);
   const [benchmark] = buildRows([board.benchmark], q, c);
 
-  // Relative is the sector's move less the benchmark's over the same period.
-  // Both numbers are published, so the difference is arithmetic on real data
-  // rather than a modelled figure, and it is null whenever either side is.
+  // Relative performance is the sector's change minus its benchmark's.
   for (const r of rows) {
     r.relative = {};
     for (const p of PERIODS) {
@@ -201,23 +179,10 @@ const HISTORY_DAYS = { '1D': 5, '1W': 14, '1M': 40, '3M': 110, YTD: null, '1Y': 
 
 const startOfYear = () => `${new Date().getFullYear()}-01-01`;
 
-// The short windows come off the intraday endpoints, not off daily closes. A
-// "1D" chart drawn from /historical-price-eod was four daily closes with
-// today's partial bar on the end, so the panel showed nothing that happened
-// today and disagreed with the price in the row above it.
-//
-// Interval per range, finest first. The plan carries 1min, 5min and 1hour for
-// gold, silver, Brent, the FX pairs and the ETFs, but declines them for WTI,
-// natural gas, copper, wheat and corn; 30min is the only one it serves for
-// every instrument on these boards. So the finer interval is asked for and
-// 30min is the fallback, and the interval actually used is reported rather
-// than left for the reader to infer from the spacing.
+// Use intraday bars for short windows, with 30-minute bars as fallback.
 const INTRADAY = { '1D': ['5min', '30min'], '1W': ['30min'] };
 
-// Hours of bars to keep, measured back from the newest bar rather than from
-// the clock. Anchoring on the data is what makes this work over a weekend, a
-// holiday, or an instrument that stopped printing hours ago: no window has to
-// be guessed and no bar is invented to fill one.
+// Anchor short windows to the newest bar so weekends still show history.
 const INTRADAY_HOURS = { '1D': 24, '1W': 24 * 7 };
 
 async function intraday(symbol, range) {
@@ -264,11 +229,7 @@ async function daily(symbol, range) {
       `/historical-price-eod/light?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}`,
     );
   } catch (err) {
-    // The plan carries daily closes for gold, silver and Brent but not for WTI,
-    // natural gas, copper, wheat or corn, so five of the eight commodities have
-    // no line at all beyond a week. Saying that beats a panel that sits on
-    // "Loading", and drawing the three weeks of 30 minute bars that are
-    // available instead would be a shorter window wearing this one's label.
+    // Report unavailable daily history without substituting a shorter window.
     if (!err.declined) throw err;
     return {
       interval: 'daily',
@@ -297,7 +258,7 @@ router.get('/history', async (req, res) => {
   const inst = KNOWN.get(symbol);
 
   if (!inst) return res.status(400).json({ error: `unknown symbol: ${symbol || 'none'}` });
-  if (!(range in HISTORY_DAYS)) return res.status(400).json({ error: `unknown range: ${range}` });
+  if (!Object.hasOwn(HISTORY_DAYS, range)) return res.status(400).json({ error: `unknown range: ${range}` });
 
   try {
     const series = INTRADAY[range]
@@ -320,6 +281,9 @@ function sendCsv(res, filename, header, rows) {
 
 router.get('/csv', async (req, res) => {
   const kind = String(req.query.kind || 'fx');
+  if (!['fx', 'commodities', 'sectors'].includes(kind)) {
+    return res.status(400).json({ error: `unknown export: ${kind}` });
+  }
   try {
     if (kind === 'sectors') {
       const board = boardOf(req);
@@ -358,13 +322,7 @@ router.get('/csv', async (req, res) => {
   }
 });
 
-// --- heatmap ----------------------------------------------------------------
-//
-// The design doc flagged this module as a rate-limit risk: market cap and
-// returns across hundreds of symbols. It is not, on these endpoints. A whole
-// index fits in one /batch-quote and one /stock-price-change, roughly 2.2kB of
-// URL each, so the S&P 500 is three upstream calls including the constituent
-// list and the TSX is five, rather than one call per symbol.
+// Batch quotes and changes across each heatmap universe.
 const HEATMAP_CACHE_MS = 5 * 60_000;
 // Membership moves at a quarterly rebalance and the fund holdings files update
 // once a day, so it is held far longer than the prices drawn on it.
@@ -386,24 +344,10 @@ async function sp500Members() {
   };
 }
 
-// FMP publishes no TSX constituent list: /tsx-constituent answers 404, and the
-// exchange screener is not a membership source. It offers 2,104 TSX rows and
-// puts LLY.TO, Eli Lilly, at the top of them on a USD market cap, which is the
-// kind of wrong that looks entirely plausible on a treemap.
-//
-// So membership comes from the funds that physically replicate the index: a
-// name is in because a fund tracking the index holds it. Neither fund alone is
-// enough, and the gaps are not the same gaps. XIC names the two Brookfield
-// partnerships but gives them no ticker, while ZCN carries BIP-UN.TO and
-// BEP-UN.TO and instead drops Thomson Reuters and Strathcona. The union of the
-// two resolves every holding that is a security at all, and the leftovers are
-// cash, collateral and a TSX 60 futures contract.
+// Use the union of XIC and ZCN holdings for TSX membership.
 const TSX_FUNDS = ['XIC.TO', 'ZCN.TO'];
 
-// A fund lists some companies twice, once with a ticker and once without, so a
-// holding is only worth reporting as skipped when nothing else resolved it.
-// This decides what to say, never what to draw: no tile is ever built from a
-// name match.
+// Name matching only suppresses duplicate warnings; it never creates a tile.
 const nameKey = (s) => String(s).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 14);
 
 async function tsxMembers() {
@@ -417,11 +361,7 @@ async function tsxMembers() {
   const unresolved = [];
 
   for (const row of holdings.flat()) {
-    // A holding with no exchange suffix is the US line of an interlisted name.
-    // Quoting it there would put a USD market cap into a CAD treemap, and the
-    // tile is sized by that number: Waste Connections is USD 41.3B on NYSE and
-    // CAD 57.4B in Toronto. Moved to its Toronto listing, and only when the
-    // exchange actually lists one.
+    // Resolve interlisted holdings to Toronto so market caps stay in CAD.
     const ticker = [row.asset, row.asset && `${row.asset}.TO`].find((s) => s && onTsx.has(s));
     if (!ticker) {
       unresolved.push(row.name || 'unnamed holding');
@@ -431,10 +371,7 @@ async function tsxMembers() {
     const company = onTsx.get(ticker);
     members.set(ticker, {
       symbol: ticker,
-      // Every name on this board is a Toronto listing, so the .TO that FMP
-      // needs to identify one says nothing here and costs a third of the room
-      // on a tile. Kept on `symbol`, which is what the export carries and what
-      // reproduces the pull.
+      // Hide .TO in labels, but retain it in symbols and exports.
       ticker: ticker.replace(/\.TO$/, ''),
       name: company.companyName || row.name,
       sector: company.sector || 'Unclassified',
@@ -485,9 +422,7 @@ function heatmapData(key) {
           changePct,
         };
       })
-      // a tile needs an area, and market cap is the area. A name with no cap
-      // cannot be drawn to scale, so it is reported as excluded rather than
-      // given a size it did not earn
+      // Tiles need positive market caps to have meaningful areas.
       .filter((t) => t.marketCap && t.marketCap > 0);
 
     const data = {
@@ -513,7 +448,7 @@ const universeOf = (req) => String(req.query.universe || 'sp500');
 
 router.get('/heatmap', async (req, res) => {
   const key = universeOf(req);
-  if (!UNIVERSES[key]) return res.status(400).json({ error: `unknown universe: ${key}` });
+  if (!Object.hasOwn(UNIVERSES, key)) return res.status(400).json({ error: `unknown universe: ${key}` });
   try {
     res.json(await heatmapData(key));
   } catch (err) {
@@ -524,7 +459,7 @@ router.get('/heatmap', async (req, res) => {
 router.get('/heatmap/csv', async (req, res) => {
   const period = String(req.query.period || '1D');
   const key = universeOf(req);
-  if (!UNIVERSES[key]) return res.status(400).json({ error: `unknown universe: ${key}` });
+  if (!Object.hasOwn(UNIVERSES, key)) return res.status(400).json({ error: `unknown universe: ${key}` });
   if (!PERIODS.some((p) => p.key === period)) {
     return res.status(400).json({ error: `unknown period: ${period}` });
   }

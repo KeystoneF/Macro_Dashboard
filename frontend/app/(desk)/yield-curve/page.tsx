@@ -45,6 +45,7 @@ type Stroke = { x1: number; y1: number; x2: number; y2: number; bridged: boolean
 export default function YieldCurvePage() {
   const [data, setData] = useState<Yields | null>(null);
   const [loadedPrior, setLoadedPrior] = useState<{ date: string; curve: Yields } | null>(null);
+  const [priorError, setPriorError] = useState<{ date: string; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [show, setShow] = useState({ ca: true, us: true, compare: true });
   const [hover, setHover] = useState<number | null>(null);
@@ -63,7 +64,7 @@ export default function YieldCurvePage() {
     let live = true;
     getJson<Yields>(`/api/yields?date=${compareDate}`)
       .then((d) => live && setLoadedPrior({ date: compareDate, curve: d }))
-      .catch(() => live && setLoadedPrior(null));
+      .catch((e) => live && setPriorError({ date: compareDate, message: e.message }));
     return () => {
       live = false;
     };
@@ -97,11 +98,7 @@ export default function YieldCurvePage() {
     };
   }, [data, prior, show]);
 
-  // Two different reasons a maturity has no value, and they must not look alike.
-  // Canada issues nothing at 1M or 20Y, so the curve has no node there and the
-  // span is drawn dashed: stepping over a rung is not the same as inventing a
-  // yield for it, and no number is ever shown at that maturity. A series that
-  // does exist but did not print is a real hole and still breaks the line.
+  // Dash spans where Canada has no maturity; break spans with missing data.
   const strokes = (field: 'ca' | 'us', src: Yields | null = data): Stroke[] => {
     if (!src || !scale) return [];
     const out: Stroke[] = [];
@@ -254,7 +251,7 @@ export default function YieldCurvePage() {
                         strokeDasharray="4 3"
                       />
                     </svg>
-                    {prior ? priorLabel : 'loading'}
+                    {prior ? priorLabel : priorError?.date === compareDate ? priorError.message : 'loading'}
                   </span>
                 )}
               </div>

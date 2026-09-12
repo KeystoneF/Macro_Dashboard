@@ -2,19 +2,8 @@ import { memo } from 'react';
 import { segments } from '../lib/gaps';
 import { toTime, type Obs } from '../lib/time';
 
-// One series on a time chart, drawn as one polyline per run of consecutive
-// prints rather than as a single line over every point. The line stops at a
-// hole and starts again after it, because joining across one would draw a path
-// through a period that never printed.
-//
-// A print with holes on both sides gets a dot: a polyline of one point renders
-// nothing, and an observation that exists must not disappear because its
-// neighbours are missing.
-//
-// Memoised, because the chart above it re-renders on every mousemove to move
-// the hover rule and none of these props change when the cursor does. Without
-// it, five daily series over 25 years rebuilt 30,000 coordinates into polyline
-// attributes several times a second and the tab stopped responding.
+// Break lines at missing periods and show isolated observations as dots.
+// Memoize coordinates so hover updates stay cheap.
 function SeriesLine({
   points,
   color,

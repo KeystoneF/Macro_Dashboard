@@ -1,11 +1,7 @@
-// OECD SDMX, and the one place this app talks to it.
-//
-// The rate limit shapes the whole file. OECD allows 60 downloads an hour from
-// one address and blocks past that, so nothing here fetches per search result
-// the way the Valet search does: the catalogue is four calls held for half a
-// day, opening a dataset is two, and drawing one is one more.
+// Share OECD's hourly request budget across catalogue, search and charts.
 
 const { cached } = require('./providers');
+const fetch = require('./http');
 
 const BASE = 'https://sdmx.oecd.org/public/rest';
 
@@ -35,9 +31,7 @@ function used() {
 
 const minutesUntil = (at) => Math.max(1, Math.ceil((at - Date.now()) / 60_000));
 
-// Last good body per url, so a window spent blocked serves the prints it
-// already had rather than an empty panel. Every figure carries its own period,
-// so an older copy of the same response says nothing untrue.
+// Keep the last successful response for rate-limit fallback.
 const HELD_MAX = 200;
 const held = new Map();
 
@@ -75,12 +69,7 @@ async function ask(url, accept, { core = false } = {}) {
 
   if (!r.ok) {
     const text = (await r.text()).slice(0, 200);
-    // 404 is two different answers: a key naming a combination nobody
-    // publishes, and a dataset that is not there. It spells the first one
-    // NoResultsFound on data and NoRecordsFound on structure, and reading only
-    // the one left every country-specific dataset reported as missing, because
-    // the dimension probe asks for Canada and the US and Germany - tax revenues
-    // holds neither.
+    // OECD uses different 404 codes for missing datasets and empty selections.
     if (r.status === 404) {
       const empty = /No(Results|Records|Data)Found/i.test(text);
       const err = new Error(empty ? 'that combination is not published' : `oecd 404 ${text}`);
@@ -118,9 +107,7 @@ const urnParts = (urn) => {
   return m ? { agency: m[1], id: m[2], version: m[3] } : null;
 };
 
-// lastNObservations is refused with a 413 on these, so the dimension probe
-// cannot run and the dataset is opened in the Data Explorer instead. OECD
-// publishes the list; a 413 from anything else is caught the same way.
+// These datasets reject lastNObservations probes with HTTP 413.
 const PROBE_BLOCKED = new Set([
   'OECD.SDD.TPS:DSD_BATIS@DF_BATIS',
   'OECD.ENV.EPI:DSD_ECH@EXT_TEMP_P',
@@ -145,9 +132,7 @@ const STALE_AFTER_DAYS = 400;
 const isStale = (updated) =>
   !updated || Date.now() - Date.parse(updated) > STALE_AFTER_DAYS * 864e5;
 
-// Four calls, none of them per result: the flow list, the availability stamps
-// that say which datasets still publish, the topic tree, and the map from
-// dataset to topic.
+// Fetch catalogue metadata in bulk; avoid requests per search result.
 const catalogue = () =>
   cached('oecd:catalogue', CATALOGUE_MS, async () => {
     const [flowBody, stampBody, schemeBody, catBody] = await Promise.all([
@@ -244,9 +229,7 @@ function scoreLocal(haystack, terms) {
   return matched * 100 + position;
 }
 
-// A dataset whose name or topic carries the words in the order they were typed
-// is what was asked for. Without this, "interest rates" answers with corporate
-// withholding tax rates, which match both words and neither meaning.
+// Prefer the full search phrase over scattered matching words.
 const PHRASE = 700;
 const SUBNATIONAL_PENALTY = 300;
 const PER_SEARCH = 12;
@@ -349,10 +332,7 @@ const readObservations = (body) => {
 
 const valueAt = (dims, row, pos) => (pos < 0 ? null : dims[pos].values[row.idx[pos]]);
 
-// Which combinations of the non-country dimensions actually exist, taken from
-// one observation each. lastNObservations=1 is what makes this affordable: the
-// whole answer is the last print of every series, so it carries the real
-// combinations, their labels, and how current each one is.
+// Probe one observation per series to find published dimension combinations.
 const PROBE_AREAS = 'CAN+USA';
 
 async function flowDetail(ref) {
@@ -452,9 +432,7 @@ async function flowDetail(ref) {
   });
 }
 
-// The publisher's own default view, repaired against what exists: whichever
-// real combination matches most of it. A combination assembled value by value
-// would often name a series nobody publishes.
+// Choose the published combination closest to OECD's default selection.
 function pickDefault(dimensions, combos, annotation) {
   const wanted = new Map();
   for (const part of String(annotation || '').split(',')) {
@@ -479,9 +457,7 @@ function pickDefault(dimensions, combos, annotation) {
 
 // Drawing one
 
-// A key is positional and the country segment is always the empty one: the
-// chart wants every country the dataset holds for the chosen measure, which is
-// one call rather than one per country.
+// Leave the country segment empty to fetch all countries in one call.
 function buildKey(dimIds, areaId, picks) {
   return dimIds.map((id) => (id === areaId ? '' : (picks[id] ?? ''))).join('.');
 }
@@ -530,7 +506,7 @@ async function seriesFor(ref, key, start, { core = false } = {}) {
   for (const row of rows) {
     const value = row.cells[0];
     // a country that has not reported the period, rather than a zero
-    if (typeof value !== 'number') continue;
+    if (!Number.isFinite(value)) continue;
     const area = valueAt(dims, row, areaPos);
     const period = valueAt(dims, row, timePos);
     if (!area || !period) continue;

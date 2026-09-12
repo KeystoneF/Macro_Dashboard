@@ -1,10 +1,5 @@
-// News and commentary sources for the aggregator. Three different XML dialects
-// and one JSON API, all normalised to the same item shape in routes/news.js.
-//
-// `country` is the publisher's focus, not a claim about any individual article.
-// StatCan and the Bank of Canada publish Canadian releases; CNBC and the FMP
-// aggregate are US market coverage. The filter is labelled that way in the UI so
-// nobody reads it as per-article classification.
+// Feed formats are normalized in routes/news.js.
+// Country identifies the publisher's focus, not each article's subject.
 
 const FEEDS = [
   {

@@ -2,13 +2,7 @@
 
 import { useSyncExternalStore } from 'react';
 
-// Inline styles cannot express a media query, and the sidebar already knows how
-// to draw itself narrow. So rather than have CSS fight the inline width with
-// !important, the component asks the browser directly and collapses itself.
-//
-// useSyncExternalStore rather than an effect: matchMedia is external state, and
-// reading it into useState from an effect is the cascading-render pattern React
-// now warns about.
+// Subscribe to matchMedia without copying browser state into an effect.
 export function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
     (onChange) => {

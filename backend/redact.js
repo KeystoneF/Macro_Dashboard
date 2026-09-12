@@ -1,10 +1,4 @@
-// FMP and FRED both take their key as a query parameter, so any error that
-// carries a URL carries the key with it. Those errors are logged and sent to
-// the browser as the 502 body, which would put a live key in a console, in a
-// screenshot, and in whatever the analyst pastes into a bug report.
-//
-// Nothing upstream is trusted to keep the key out of its own error text, so
-// every message leaves through here.
+// Strip credentials before logging or returning upstream errors.
 
 const secrets = () =>
   [
@@ -21,11 +15,12 @@ const secrets = () =>
 
 function redact(text) {
   let out = String(text ?? '');
-  for (const s of secrets()) out = out.split(s).join('[redacted]');
-  // a credential the env does not know about can still ride in on an upstream
-  // URL or in its error prose, so the parameter name is matched wherever it
-  // appears. Over-redacting a log line costs nothing; under-redacting it once
-  // puts a live key somewhere permanent.
+  for (const s of secrets()) {
+    out = out.split(s).join('[redacted]');
+    out = out.split(encodeURIComponent(s)).join('[redacted]');
+  }
+  out = out.replace(/(postgres(?:ql)?:\/\/)[^\s/@]+(?::[^\s/@]*)?@/gi, '$1[redacted]@');
+  // Also redact named credentials that are not in this process's environment.
   out = out.replace(
     /\b(apikey|api_key|key|token|secret|password|pwd)=\s*[^&\s"']+/gi,
     '$1=[redacted]',
@@ -36,11 +31,7 @@ function redact(text) {
   return out.replace(/\bsk-[A-Za-z0-9._-]{8,}/g, '[redacted]');
 }
 
-// A driver can raise a connection failure with an empty message and the reason
-// only in .code, so reading .message alone answers with {"error":""} and an
-// analyst is told nothing at all while the database is down. fetch does the
-// same thing differently: every network failure is the message "fetch failed"
-// and the reason is one or two .cause levels down, so the chain is walked.
+// Include nested causes and driver codes when the top-level message is vague.
 function describe(err) {
   if (!err) return 'unknown error';
 

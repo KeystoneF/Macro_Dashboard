@@ -75,9 +75,7 @@ const CAPE_SPANS: [string, number | null][] = [
   ['All', null],
 ];
 
-// The workbook is a 1.6MB download at the API's boot, so the first answer can
-// carry an error the next one will not. Retried rather than left dead until the
-// analyst reloads the page.
+// Retry valuation loading while the workbook cache warms.
 const VALUATION_RETRY_MS = 6_000;
 const VALUATION_RETRIES = 5;
 
@@ -202,9 +200,7 @@ export default function SectorTrackerPage() {
       t1,
       ticks,
       digits: tickDigits(step ?? 1),
-      // the mean is over the whole series, so a short window can sit entirely
-      // above it. Drawn where it falls inside the window, rather than stretching
-      // the axis to reach a line the window has no room for.
+      // Draw the historical mean only when it falls within the visible scale.
       mean: average != null && average >= lo && average <= hi ? average : null,
       x: (t: number) => CAPE_FRAME.pad.left + (plotW(CAPE_FRAME) * (t - t0)) / (t1 - t0 || 1),
       y: (v: number) => CAPE_FRAME.pad.top + plotH(CAPE_FRAME) * (1 - (v - lo) / (hi - lo)),

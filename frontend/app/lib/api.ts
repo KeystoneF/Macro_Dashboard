@@ -1,15 +1,5 @@
 'use client';
 
-// A session that has run out looks like a 401 on whatever the page asked for
-// next. Handling it here rather than in each page means an analyst whose token
-// expired gets sent to sign in, instead of six panels each rendering
-// "not signed in" in a red box with no way forward.
-function sessionLost() {
-  if (typeof window === 'undefined') return;
-  if (window.location.pathname === '/login') return;
-  window.location.replace('/login');
-}
-
 export class Unauthorized extends Error {
   constructor() {
     super('session expired');
@@ -17,21 +7,45 @@ export class Unauthorized extends Error {
   }
 }
 
-// The API answers 200 with an { error } body when a source fails, so a bad
-// FRED key looks like success to fetch. Unwrap that here rather than in six
-// places that each remember to check it differently.
-export async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+export async function requestJson<T>(url: string, options: RequestInit = {}, timeoutMs = 120_000): Promise<T> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (options.signal?.aborted) abort();
+  options.signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(abort, timeoutMs);
 
-  if (res.status === 401) {
-    sessionLost();
-    throw new Unauthorized();
-  }
+  try {
+    const res = await fetch(url, {
+      ...options,
+      credentials: 'same-origin',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (res.status === 401) throw new Unauthorized();
 
-  const body = await res.json().catch(() => null);
-  if (body && typeof body === 'object' && 'error' in body) {
-    throw new Error(String((body as { error: unknown }).error));
+    const body = await res.json().catch(() => null);
+    if (body && typeof body === 'object' && body.error) throw new Error(String(body.error));
+    if (!res.ok) throw new Error(`Request failed (${res.status}). Please try again.`);
+    if (body === null) throw new Error('The server returned an invalid response. Please try again.');
+    return body as T;
+  } catch (err) {
+    if (controller.signal.aborted) throw new Error('The request timed out or was cancelled. Please try again.');
+    if (err instanceof TypeError) throw new Error('Cannot reach the server. Check your connection and try again.');
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', abort);
   }
-  if (!res.ok) throw new Error(`${res.status} from ${url}`);
-  return body as T;
+}
+
+// Protected data requests share one session-expiry path.
+export async function getJson<T>(url: string, options?: RequestInit): Promise<T> {
+  try {
+    return await requestJson<T>(url, options);
+  } catch (err) {
+    if (err instanceof Unauthorized && typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.replace('/login');
+    }
+    throw err;
+  }
 }

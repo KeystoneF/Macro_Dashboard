@@ -74,9 +74,7 @@ export default function SeriesExplorerPage() {
   const [sideOverride, setSideOverride] = useState<Record<string, Side>>({});
   const chartRef = useRef<SVGSVGElement | null>(null);
 
-  // The last-print column is resolved server side one series at a time, so a
-  // cold API answers with it still filling in. Ask again until it is done,
-  // rather than showing a pending lookup as though the series had stopped.
+  // Poll while the catalogue's freshness lookup is still running.
   const [resolving, setResolving] = useState(false);
 
   useEffect(() => {
@@ -122,9 +120,7 @@ export default function SeriesExplorerPage() {
   // from the chart on the click, instead of on the refetch that follows
   const data = useMemo(() => loaded.filter((s) => picked.includes(s.id)), [loaded, picked]);
 
-  // memoised so it keeps its identity between renders: the sections below are
-  // built from it, and a fresh array on every mousemove rebuilt all 133
-  // catalogue rows behind the hover rule
+  // Keep the filtered array stable during hover updates.
   const filtered = useMemo(
     () =>
       cat.filter(
@@ -136,10 +132,7 @@ export default function SeriesExplorerPage() {
     [cat, country, group, query],
   );
 
-  // Group names repeat across the two countries, so a heading carries both. One
-  // group can also arrive in more than one run, because CA Prices holds both the
-  // Bank's y/y measures and the StatCan index, so rows are collected by heading
-  // rather than by adjacency.
+  // Group catalogue rows by both country and subject.
   const sections = useMemo(() => {
     const bySection = new Map<string, { country: string; group: string; rows: Meta[] }>();
     for (const s of filtered) {
@@ -160,10 +153,7 @@ export default function SeriesExplorerPage() {
 
   const units = useMemo(() => [...new Set(data.map((s) => s.units))], [data]);
 
-  // Indexing rebases everything to 100, so there is one unit and one axis. In
-  // levels, the first unit selected holds the left axis and anything measured
-  // differently goes right, which is what a percent against a dollar figure
-  // needs to be readable at all.
+  // Index mode uses one axis; levels split by units.
   const sideOf = useMemo(() => {
     const out: Record<string, Side> = {};
     for (const s of data) {
@@ -220,9 +210,7 @@ export default function SeriesExplorerPage() {
       return (v: number) => frame.pad.top + plotH(frame) * (1 - (v - a.lo) / (a.hi - a.lo));
     };
 
-    // built once and handed out by side. Making one per call returned a new
-    // function on every render, which is enough to defeat the memo on the
-    // lines below and put every point back on the hover path.
+    // Keep coordinate functions stable for memoized chart lines.
     const axes = { left: project('left'), right: project('right') };
 
     return {
@@ -629,10 +617,7 @@ function RightAxis({
   );
 }
 
-// Columns run from zero where the axis crosses it, so a deficit reads as a
-// deficit rather than as a short bar standing on the floor of the chart.
-// Memoised for the same reason SeriesLine is: one rect per print is thousands
-// of elements, and moving the hover rule must not rebuild them.
+// Anchor bars at zero when it is visible; memoize for hover performance.
 const Columns = memo(function Columns({
   points,
   color,

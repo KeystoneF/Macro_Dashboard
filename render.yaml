@@ -1,19 +1,6 @@
-# Two web services and a database. The browser only ever talks to macrodesk-web:
-# every frontend call is a relative /api/... path that next.config.ts proxies to
-# API_ORIGIN server side, so the session cookie stays same origin and CORS never
-# enters into it.
-#
-# The two services name each other, so their urls are entered at apply time
-# rather than looked up with fromService: each service would otherwise have to
-# exist before the other could be created. Render prompts for every sync: false
-# value, and both follow from the service names below:
-#
-#   API_ORIGIN       https://macrodesk-api.onrender.com
-#   ALLOWED_ORIGINS  https://macrodesk-web.onrender.com
-#
-# If Render appends a suffix because a name is taken, correct the value on the
-# service afterwards and redeploy.
-
+# Set both public service URLs before the first build.
+# API_ORIGIN: https://macrodesk-api.onrender.com
+# ALLOWED_ORIGINS: https://macrodesk-web.onrender.com
 databases:
   - name: macrodesk-db
     databaseName: macrodesk
@@ -29,17 +16,16 @@ services:
     plan: starter
     buildCommand: npm ci
     startCommand: npm start
-    # runs against the new release before it takes traffic, so the schema is
-    # never behind the code that expects it
     preDeployCommand: npm run migrate
-    # open, and reports a dead database as db:false rather than a bad status, so
-    # a database outage does not get the whole api restarted out from under it
     healthCheckPath: /api/health
     envVars:
       - key: DATABASE_URL
         fromDatabase:
           name: macrodesk-db
           property: connectionString
+      # Render's internal database endpoint uses a self-signed certificate.
+      - key: DB_SSL_REJECT_UNAUTHORIZED
+        value: "false"
       - key: NODE_VERSION
         value: "22"
       - key: NODE_ENV
@@ -54,7 +40,6 @@ services:
         sync: false
       - key: FRED_API_KEY
         sync: false
-      # ranks the brief's top panel; the panel falls back to newest first without it
       - key: OPEN_AI_KEY
         sync: false
 
@@ -63,13 +48,10 @@ services:
     runtime: node
     rootDir: frontend
     plan: starter
-    # --include=dev because NODE_ENV=production makes npm skip devDependencies,
-    # and typescript and the @types packages live there: next build needs them
+    # The build needs TypeScript and type packages from devDependencies.
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     envVars:
-      # the proxy target. rewrites are baked into the build, so this has to be
-      # right before the first build rather than filled in after it.
       - key: API_ORIGIN
         sync: false
       - key: NODE_VERSION

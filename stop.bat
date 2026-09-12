@@ -5,8 +5,8 @@ echo Stopping KeyStone MacroDesk...
 
 REM close by window title so we only kill our own node processes,
 REM not whatever else you have running
-taskkill /F /FI "WINDOWTITLE eq MacroDesk API*" >nul 2>&1
-taskkill /F /FI "WINDOWTITLE eq MacroDesk Web*" >nul 2>&1
+taskkill /F /T /FI "WINDOWTITLE eq MacroDesk API*" >nul 2>&1
+taskkill /F /T /FI "WINDOWTITLE eq MacroDesk Web*" >nul 2>&1
 echo   servers stopped
 
 REM stop, not down: `down` would remove the container and you would wait for

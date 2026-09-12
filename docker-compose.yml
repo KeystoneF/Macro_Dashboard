@@ -7,21 +7,11 @@ services:
       POSTGRES_PASSWORD: devroot
       POSTGRES_DB: macrodesk
     ports:
-      # loopback only. Bare "5433:5432" publishes the database on every
-      # interface, and the password below is the one in .env.example.
-      #
-      # 5433 on the host because a natively installed postgres already holds
-      # 5432 on the dev box, and docker reports that clash as a permissions error.
+      # Local development only.
       - "127.0.0.1:5433:5432"
     volumes:
-      # 18+ wants the mount one level up at /var/lib/postgresql and keeps its
-      # data in a version-named subdirectory. Mounting .../data directly aborts
-      # the boot with "unused mount/volume".
-      #
-      # pgdata, not the old dbdata: postgres will not initialise into a
-      # directory holding a mysql data dir and the failure reads as a crash loop
+      # Postgres 18 stores data in a versioned subdirectory.
       - pgdata:/var/lib/postgresql
-    # health check so we can tell "postgres is booting" apart from "postgres is broken"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U macrodesk -d macrodesk"]
       interval: 5s

@@ -46,10 +46,7 @@ type History = {
 const PERIODS = ['1D', '1W', '1M', '3M', 'YTD', '1Y'];
 const FRAME: Frame = { w: 900, h: 300, pad: { top: 14, right: 18, bottom: 30, left: 62 } };
 
-// Prices move while the page is open, so the boards refresh themselves. The API
-// holds a quote for fifteen seconds, so this is what decides how current the
-// board is; a minute of it on top of a minute of cache was putting two minute
-// old prices under a label that read as live.
+// Refresh prices while this page is open.
 const REFRESH_MS = 20_000;
 
 export default function FxCommoditiesPage() {
@@ -58,6 +55,7 @@ export default function FxCommoditiesPage() {
   const [commodities, setCommodities] = useState<Board | null>(null);
   const [selected, setSelected] = useState('USDCAD');
   const [history, setHistory] = useState<History | null>(null);
+  const [historyError, setHistoryError] = useState<{ key: string; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   const chartRef = useRef<SVGSVGElement | null>(null);
@@ -99,7 +97,7 @@ export default function FxCommoditiesPage() {
     let live = true;
     getJson<History>(`/api/markets/history?symbol=${selected}&range=${period}`)
       .then((h) => live && setHistory(h))
-      .catch(() => live && setHistory(null));
+      .catch((e) => live && setHistoryError({ key: `${selected}:${period}`, message: e.message }));
     return () => {
       live = false;
     };
@@ -131,9 +129,7 @@ export default function FxCommoditiesPage() {
     (r) => r.symbol === selected,
   );
 
-  // the oldest print across both boards, because that is how current the
-  // screen actually is. FMP delays some instruments more than others and this
-  // used to be the time of our own fetch, which said nothing about either.
+  // Use the oldest quote across both boards.
   const quotedAt = [fx?.quotedAt, commodities?.quotedAt].filter(Boolean).sort()[0] ?? null;
 
   return (
@@ -217,7 +213,7 @@ export default function FxCommoditiesPage() {
           <p style={{ fontSize: 12, color: COLOR.dim }}>
             {shown
               ? (shown.note ?? 'Not enough history in this window to draw a line')
-              : 'Loading'}
+              : historyError?.key === `${selected}:${period}` ? historyError.message : 'Loading'}
           </p>
         ) : (
           <svg
@@ -368,9 +364,7 @@ function BoardTable({
   );
 }
 
-// The day's low, last and high. Three real prints, not a modelled intraday path:
-// it says where the last sits inside the session, which is what the Trend column
-// in the mockup is for.
+// Show the last price within the published daily range.
 function dayBand(r: Row): number[] {
   const out = [r.dayLow, r.price, r.dayHigh].filter((v): v is number => v != null);
   return out.length === 3 ? out : [];
@@ -396,9 +390,7 @@ function nearestPoint(points: Obs[], t: number): Obs | null {
   return best;
 }
 
-// An intraday bar carries a time as well as a date, and "09-01T19:50:00" under
-// a tick is unreadable. A window inside one day is labelled by the clock, a
-// longer one by the day it fell on.
+// Use time labels for a single day and date labels for longer windows.
 const tickLabel = (period: string, sameDay: boolean) =>
   period.includes('T') ? (sameDay ? period.slice(11, 16) : period.slice(5, 16).replace('T', ' ')) : period.slice(5);
 

@@ -51,7 +51,6 @@ export default function LoginPage() {
       router.replace(LANDING);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed.');
-      setPassword('');
     } finally {
       setBusy(false);
     }
@@ -82,6 +81,8 @@ export default function LoginPage() {
             id="email"
             name="email"
             type="email"
+            maxLength={255}
+            required
             autoComplete="username"
             autoCapitalize="none"
             spellCheck={false}
@@ -104,13 +105,14 @@ export default function LoginPage() {
               name="password"
               type={reveal ? 'text' : 'password'}
               autoComplete="current-password"
+              required
               placeholder="Enter your password"
               value={password}
               onChange={(e) => {
                 setPassword(e.target.value);
                 setError(null);
               }}
-              style={{ ...S.input, paddingRight: 40 }}
+              style={{ ...S.input, paddingRight: 50 }}
               disabled={busy}
             />
             <button
@@ -243,7 +245,7 @@ const S: Record<string, CSSProperties> = {
     margin: '0 0 22px',
   },
   label: { fontSize: 10.5, letterSpacing: '.2px', color: COLOR.dim, marginBottom: 6 },
-  input: { ...T.input, background: COLOR.bg, padding: '10px 11px', fontSize: 13, width: '100%' },
+  input: { ...T.input, background: COLOR.bg, padding: '10px 11px', fontSize: 16, width: '100%' },
   passwordWrap: { position: 'relative', display: 'flex', alignItems: 'center' },
   reveal: {
     position: 'absolute',
@@ -251,8 +253,8 @@ const S: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 28,
-    height: 28,
+    width: 44,
+    height: 44,
     padding: 0,
     borderWidth: 0,
     borderStyle: 'solid',

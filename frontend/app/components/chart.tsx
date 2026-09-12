@@ -69,9 +69,7 @@ export function XLabels({
           y={frame.h - offset}
           fill={COLOR.dim}
           fontSize="10"
-          // centred, except at the ends, where a centred label runs off the
-          // viewBox and is clipped. Intraday ticks carry a time as well as a
-          // date and are wide enough for that to bite.
+          // Anchor edge labels inward to avoid clipping.
           textAnchor={it.at < EDGE ? 'start' : it.at > frame.w - EDGE ? 'end' : 'middle'}
         >
           {it.label}
@@ -81,9 +79,7 @@ export function XLabels({
   );
 }
 
-// Vertical axis title, rotated up the left gutter. A saved PNG carries the svg
-// and nothing around it, so a chart that names its axis only in the panel
-// heading exports with an unlabelled scale.
+// Keep axis titles inside the SVG so PNG exports include them.
 export function AxisLabel({ frame, text }: { frame: Frame; text: string }) {
   const x = 12;
   const y = frame.pad.top + plotH(frame) / 2;
@@ -101,9 +97,7 @@ export function AxisLabel({ frame, text }: { frame: Frame; text: string }) {
   );
 }
 
-// Names a rule the plot cannot explain on its own, in the bottom margin. Same
-// reason: a dashed line described only in the panel copy exports as a dashed
-// line nobody can read.
+// Keep plot notes inside the SVG for exports.
 export function LegendRule({
   frame,
   color,

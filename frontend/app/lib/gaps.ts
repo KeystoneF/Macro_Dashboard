@@ -1,23 +1,7 @@
 import { toTime, type Obs } from './time';
 
-// Splits a series into runs of consecutive prints, breaking wherever an
-// observation is missing.
-//
-// This exists because of the no-estimate policy. A polyline drawn over every
-// point joins the two sides of a hole with a straight segment, which asserts a
-// path through a period that never printed. US CPI has exactly this hole at
-// October 2025, and before this the chart drew straight through it.
-//
-// What counts as a hole has to come from the series itself, and the signal is
-// recurrence rather than size. Daily market data runs 1, 1, 1, 1, 3 as it steps
-// over each weekend: the three-day step is long but it happens every week, so
-// it is the cadence. A monthly series that skips a month also produces a long
-// step, but only once.
-//
-// So the stride is the longest step that repeats, and a step taken only once or
-// twice is a hole rather than a pattern. Neither the median nor a high quantile
-// can separate those: the median of daily data is 1 and breaks every Friday,
-// while a high quantile on a short series picks the hole itself as normal.
+// Break lines at missing observations.
+// Recurring long gaps, such as weekends, count as part of the cadence.
 const DAY = 864e5;
 const MIN_RECURRENCE = 2;
 const RECURRENCE_SHARE = 0.05;
@@ -53,12 +37,7 @@ export function normalStep(points: Obs[]): number {
   return sorted[Math.floor(sorted.length / 2)] || 0;
 }
 
-// Splitting is pure and the result only changes when the data does, but it was
-// being redone on every render, and the chart re-renders on every mousemove to
-// move the hover rule. Five daily series over 25 years is 30,000 prints, each
-// one parsed twice per split, and the tab locked solid the moment the cursor
-// entered the plot. Keyed on the array itself so a new window or a rebase
-// recomputes and a redraw does not.
+// Cache splits by array identity so hover updates do not reparse the series.
 const splits = new WeakMap<Obs[], Map<number, Obs[][]>>();
 
 export function segments(points: Obs[], factor = GAP_FACTOR): Obs[][] {

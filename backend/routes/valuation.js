@@ -1,4 +1,5 @@
 const express = require('express');
+const fetch = require('../http');
 const router = express.Router();
 const { YARDENI, YARDENI_PAGE, chart } = require('../valuation');
 const { SHILLER, load: loadShiller, diagnose: diagnoseShiller } = require('../shiller');
@@ -48,7 +49,7 @@ function load(entry) {
 
 // Warmed at boot, because the workbook is 1.6MB and the parse is the slowest
 // thing on this module.
-loadShiller().catch((err) => console.error('shiller warm failed:', redact(describe(err))));
+router.warm = () => loadShiller().catch((err) => console.error('shiller warm failed:', redact(describe(err))));
 
 router.get('/', async (req, res) => {
   let shiller = { observations: [], value: null, average: null, asOf: null, from: null, updated: null };

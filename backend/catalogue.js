@@ -1,17 +1,5 @@
-// Curated rather than exposing every series either provider carries: Valet alone
-// holds close to 16,000 and most are one-off chart series from a single
-// publication. Every id below was checked against a live response and its last
-// print confirmed current; anything that had stopped was dropped rather than
-// listed.
-//
-// The OECD-sourced Canadian series on FRED are the trap worth naming.
-// CANCPIALLMINMEI stopped in March 2025, CANPROINDMISMEI in February 2024 and
-// CANPFCEQDSMEI in July 2023, while all three still resolve cleanly in the
-// catalogue and look current. Canadian prices come from Valet for that reason.
-//
-// `group` drives the headings in the explorer's catalogue panel. File a series
-// under what an analyst would look for it under, not under its provider's own
-// taxonomy.
+// Curated series, grouped by analyst workflow.
+// Canadian prices use Valet because several FRED mirrors stopped updating.
 
 const CA = [
   // Valet carries the Bank's own CPI measures, which is why Canadian prices do
@@ -33,9 +21,7 @@ const CA = [
   ['BD.CDN.10YR.DQ.YLD', 'Bonds and bills', 'GoC 10-year benchmark', '%', 'Daily'],
   ['BD.CDN.LONG.DQ.YLD', 'Bonds and bills', 'GoC long-term benchmark', '%', 'Daily'],
   ['BD.CDN.RRB.DQ.YLD', 'Bonds and bills', 'Real return bond, long-term', '%', 'Daily'],
-  // The bill series print on Tuesdays every second week, not weekly: checked
-  // against Valet, every step in all three is 14 days. A biweekly line beside a
-  // daily one is not a gap in either of them.
+  // T-bill auctions print every other Tuesday.
   ['V80691303', 'Bonds and bills', 'Treasury bill, 3 month', '%', 'Biweekly'],
   ['V80691304', 'Bonds and bills', 'Treasury bill, 6 month', '%', 'Biweekly'],
   ['V80691305', 'Bonds and bills', 'Treasury bill, 1 year', '%', 'Biweekly'],
@@ -72,16 +58,7 @@ const CA_FRED = [
   ['NGDPRSAXDCCAQ', 'Labour and output', 'Real GDP, quarterly', 'Mil. CAD', 'Quarterly'],
 ];
 
-// Statistics Canada, via the Web Data Service. This is the national statistical
-// office, so it carries the real activity series Valet does not: GDP by month,
-// the labour force survey, retail and manufacturing, trade and housing starts.
-//
-// The units below are the trap. StatCan publishes a value alongside a scalar
-// factor, and the value is expressed IN that factor rather than multiplied
-// through by it: employment prints as 21214.8 with a scalar of thousands, not
-// as 21,214,800. Reading the number without the factor is wrong by three or six
-// orders of magnitude and still looks like a plausible figure, so the scale is
-// carried in the units string here and the published value is shown untouched.
+// StatCan values keep their published scale; include that scale in the units.
 const CA_STATCAN = [
   ['v41690973', 'Prices', 'CPI, all items index', 'Index 2002=100', 'Monthly'],
 

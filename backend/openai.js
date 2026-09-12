@@ -1,22 +1,15 @@
-// The one place OPEN_AI_KEY is read. It travels in an Authorization header
-// rather than in a query string, so it cannot ride out on a url in an error,
-// and it never reaches a response body: callers report failures through
-// redact.js like every other upstream.
+// Keep the API key in the Authorization header and redact upstream errors.
 
 const BASE = 'https://api.openai.com/v1/responses';
 
-// The cheapest of the 5 series. The ranking it does here is a pick from a list
-// it was handed, not a question about the world, so the small model is the one
-// this needs.
+// Ranking only needs to choose from the supplied facts.
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5-nano';
 
 const TIMEOUT_MS = 60_000; // a hung outbound connection otherwise holds the panel open
 
 const configured = () => Boolean(process.env.OPEN_AI_KEY);
 
-// A ceiling on spend, counted the way oecd.js counts its own calls. Every
-// caller here is cached for half an hour, so this is only ever reached by
-// something asking in a loop.
+// Cap model calls per process to bound spend.
 const HOUR_MS = 3600_000;
 const CEILING = Number(process.env.OPENAI_MAX_CALLS_PER_HOUR) || 60;
 

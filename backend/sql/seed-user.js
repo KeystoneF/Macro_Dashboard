@@ -1,9 +1,5 @@
-// Creates or repoints one analyst account. Run it to get into a fresh install:
-//   node sql/seed-user.js analyst@keystone.ca "Name"
-//
-// The password is read from the prompt, not from argv, because an argument
-// lands in shell history and in the process list where anyone on the box can
-// read it. SEED_PASSWORD in the environment works too, for scripting.
+// Create or update an analyst: node sql/seed-user.js <email> <name>.
+// Read the password from stdin or SEED_PASSWORD, never argv.
 require('dotenv').config({ path: require('node:path').join(__dirname, '..', '.env') });
 
 const bcrypt = require('bcryptjs');
@@ -20,7 +16,7 @@ function askPassword() {
     rl.on('line', (line) => {
       rl.close();
       process.stdout.write('\n');
-      resolve(line.trim());
+      resolve(line);
     });
   });
 }
@@ -32,17 +28,14 @@ async function main() {
   }
 
   const password = await askPassword();
-  if (password.length < 10) {
-    console.error('password must be at least 10 characters');
+  if (password.length < 10 || Buffer.byteLength(password, 'utf8') > 72) {
+    console.error('password must be at least 10 characters and at most 72 UTF-8 bytes');
     process.exit(1);
   }
 
   const existing = await users.byEmail(email);
   if (existing) {
-    // A new hash does nothing to a session already open: the cookie was issued
-    // against the old password and stays valid for the rest of its twelve hours.
-    // Bumping the version is what ends those, which is the point of resetting a
-    // password for an account that may be in someone else's hands.
+    // Resetting a password also revokes existing sessions.
     await pool.query(
       'UPDATE users SET name = $1, password_hash = $2, token_version = token_version + 1 WHERE id = $3',
       [name, await bcrypt.hash(password, 12), existing.id],

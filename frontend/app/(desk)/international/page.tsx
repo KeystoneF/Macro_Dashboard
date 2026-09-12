@@ -62,9 +62,7 @@ const METRICS: [MetricKey, string][] = [
   ['unemployment', 'Unemployment'],
 ];
 
-// Canada, the United States and the OECD total hold the desk colours wherever
-// they appear. Every other country takes the next free colour from the peer
-// set, and the five G7 peers keep the hues they have always had.
+// Keep country colors stable across selections.
 const ANCHOR: Record<string, string> = {
   CAN: COLOR.ca,
   USA: COLOR.us,
@@ -127,11 +125,7 @@ export default function InternationalPage() {
     };
   }, [query]);
 
-  // The chart clears itself on a switch by ignoring the previous response,
-  // rather than by blanking state from inside the effect. `metric` names which
-  // one answered: a curated measure carries its own name and a searched one
-  // carries `found`. Both carry flow and key, so reading those to decide would
-  // never match a curated measure and the chart would load forever.
+  // Only display data matching the selected metric or dataset key.
   const data = loaded && idOf(loaded) === wanted ? loaded : null;
 
   useEffect(() => {
@@ -206,9 +200,7 @@ export default function InternationalPage() {
     [scale],
   );
 
-  // Every country the dataset holds, minus the ones already on the chart. The
-  // groupings OECD publishes alongside them, EA20 and G7 and the rest, are
-  // series in their own right and stay in the list.
+  // Offer countries and aggregates not already selected.
   const addable = useMemo(
     () =>
       (data?.areas ?? [])

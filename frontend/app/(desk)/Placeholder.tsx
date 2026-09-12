@@ -9,9 +9,7 @@ const BADGE: Partial<Record<ModuleState, { text: string; color: string }>> = {
   blocked: { text: 'Blocked', color: COLOR.bad },
 };
 
-// Stands in for a module that has not been built. It shows no figures at all:
-// the mockups carry placeholder numbers, and putting those on a route inside
-// the app is exactly what the no-estimate policy exists to stop.
+// Show unavailable modules without mock figures.
 export default function Placeholder({ module }: { module: Module }) {
   const badge = BADGE[module.state];
 

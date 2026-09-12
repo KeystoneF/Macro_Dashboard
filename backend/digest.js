@@ -1,11 +1,4 @@
-// The brief's ranked panel, which design/1-daily-brief.html calls "Top Releases
-// & Articles Ranked by Model".
-//
-// The model is handed the facts the nine modules already pulled and picks which
-// ones an analyst should read first. It never supplies a figure: every value on
-// the panel is rendered from the fact it points at, and a line quoting a number
-// that is not in that fact is dropped. So the ranking is the model's and the
-// data stays the source's, which is what the no-estimate policy requires.
+// Rank sourced facts. Model commentary never supplies the displayed figures.
 
 const { redact, describe } = require('./redact');
 const { ask, configured, MODEL } = require('./openai');
@@ -80,17 +73,13 @@ const forModel = (f) => ({
 
 const DIGITS = /\d+(?:[.,]\d+)?/g;
 
-// A line may only carry a number that is already in the fact it points at. The
-// model is told not to write figures at all, so this catches the case where it
-// does anyway rather than trusting the instruction.
+// Reject numbers that do not appear in the referenced fact.
 function grounded(line, f) {
   const hay = [f.label, f.value, f.period, f.note, f.title, f.source].filter(Boolean).join(' ');
   return (line.match(DIGITS) || []).every((n) => hay.includes(n));
 }
 
-// A line that only says the label again is worse than no line, and the model is
-// weak at the instruction telling it not to. The fact keeps its place; the
-// commentary is what gets dropped.
+// Drop commentary that only repeats the label.
 const WORDS = /[a-z0-9]+/g;
 const NEW_WORDS = 2;
 
@@ -103,10 +92,7 @@ function addsSomething(line, f) {
   return fresh.size >= NEW_WORDS;
 }
 
-// It leads with the row's own label often enough to handle here as well:
-// "Gold: Gold shows a daily move" is the label printed twice on one row. Only a
-// head whose every word is already in the fact goes, so a colon inside real
-// prose is left alone.
+// Strip a repeated label before a colon.
 const HEAD_MAX = 48;
 
 function stripLabelEcho(line, f) {
@@ -121,9 +107,7 @@ function stripLabelEcho(line, f) {
   return rest || line;
 }
 
-// Words that assert a change. A fact carrying a move over a period supports
-// them and a level does not, and the model writes them against a level anyway,
-// so the instruction saying not to has this behind it.
+// A level alone does not support a claim about direction.
 const DIRECTION =
   /\b(rose|rise[sn]?|rising|fell|fall(s|en|ing)?|climb(ed|ing)?|drop(ped|ping)?|gain(ed|ing)?|declin(ed|ing)|advanc(ed|ing)|jump(ed|ing)?|slip(ped|ping)?|surg(ed|ing)|widen(ed|ing)?|narrow(ed|ing)?|steepen(ed|ing)?|flatten(ed|ing)?|increas(ed|ing)|decreas(ed|ing)|rallied|tumbled|weaken(ed|ing)?|strengthen(ed|ing)?|higher|lower|mov(e|es|ed|ing)|uptick|downtick)\b/i;
 
@@ -131,11 +115,7 @@ const DIRECTION =
 // statement about change, and only the fact's own note can carry it.
 const STEADY = /\b(steady|unchanged|held|holds|holding|flat|stable|pause[ds]?)\b/i;
 
-// The model attributed a United States yield to Canada, which no number check
-// can see. The desk knows every country it can name, so a line naming one that
-// the fact it points at does not is the same class of error as a stray figure.
-// Matched as whole words without building a regex per name, because a country
-// name carries brackets and periods that would have to be escaped into one.
+// Check country names separately from numeric claims.
 const LETTER = /[a-z0-9]/;
 
 function says(text, phrase) {
@@ -174,9 +154,7 @@ function assertsUnsupportedChange(line, f) {
 
 const tidy = (line) =>
   String(line || '')
-    // it writes the fact's own id at the head of the line often enough to handle
-    // here, with or without punctuation after it, and the digits in it would
-    // fail the check below and cost the line
+    // Strip leading fact IDs before checking the prose.
     .replace(/^\s*f\d+\b[\s:.,-]*/i, '')
     // it reaches for the typographic hyphens as well, and "month-over-month"
     // should be the one on the keyboard
@@ -198,9 +176,7 @@ function rank(items, bundle, tests) {
     // the cap is in the instructions too, and enforced here rather than trusted there
     const taken = perModule.get(f.module) || 0;
     if (taken >= PER_MODULE) continue;
-    // A line that fails either check costs the line, not the pick: the fact it
-    // points at was still pulled from a source, and the commentary is the only
-    // part that was not.
+    // Keep the sourced fact even when its commentary fails validation.
     const line = stripLabelEcho(tidy(item.line), f);
     const keep =
       line &&
@@ -217,9 +193,7 @@ function rank(items, bundle, tests) {
   return out;
 }
 
-// The model being unavailable must not empty the panel. Newest first is the
-// order the rest of the brief already uses, and no line is written for a pick
-// nobody ranked.
+// Fall back to the newest facts when ranking is unavailable.
 const newestFirst = (bundle) =>
   [...bundle.facts]
     .filter((f) => f.period)
@@ -273,9 +247,7 @@ async function build({ window, country }) {
   }
 }
 
-// One ranking per window and country per half hour, which is also what keeps a
-// room full of analysts from each buying their own. Holds the promise, not the
-// value, so four of them opening the page together share one call.
+// Share one ranking request per window and country.
 const held = new Map();
 const inFlight = new Map();
 
@@ -291,7 +263,9 @@ function digest({ window, country }) {
 
   const work = build({ window, country })
     .then((data) => {
+      held.delete(key);
       held.set(key, { at: Date.now(), data });
+      if (held.size > 200) held.delete(held.keys().next().value);
       return data;
     })
     .finally(() => inFlight.delete(key));

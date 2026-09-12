@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import * as T from '../theme';
 import { COLOR, RADIUS } from '../theme';
@@ -62,16 +62,14 @@ function SeriesSearch({
 }) {
   const [query, setQuery] = useState('');
   const [source, setSource] = useState('all');
-  // Off by default: what comes back is series that are still being published.
-  // The providers between them carry tens of thousands that stopped years ago
-  // or were one panel in one report, and those are not what anyone is looking
-  // for unless they say so.
+  // Hide discontinued series and publication snapshots unless requested.
   const [includeAll, setIncludeAll] = useState(false);
   const [data, setData] = useState<Results | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cube, setCube] = useState<Cube | null>(null);
   const [picks, setPicks] = useState<number[]>([]);
   const [resolved, setResolved] = useState<Resolved | null>(null);
+  const requestId = useRef(0);
 
   const term = query.trim();
 
@@ -97,27 +95,30 @@ function SeriesSearch({
   }, [term, source, includeAll]);
 
   const openCube = (productId: number) => {
+    const request = ++requestId.current;
     setResolved(null);
     setPicks([]);
     setCube(null);
     getJson<Cube>(`/api/discover/cube/${productId}`)
       .then((c) => {
+        if (request !== requestId.current) return;
         setCube(c);
         // a sensible starting point: the first member of every dimension, which
         // is Canada and the total on almost every table
         setPicks(c.dimensions.map((d) => d.members[0]?.id ?? 1));
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => request === requestId.current && setError(e.message));
   };
 
   const resolve = (next: number[]) => {
     if (!cube) return;
+    const request = ++requestId.current;
     setResolved(null);
     getJson<Resolved>(
       `/api/discover/cube/${cube.productId}/resolve?picks=${next.join(',')}`,
     )
-      .then(setResolved)
-      .catch((e) => setResolved({ id: '', label: '', freq: null, note: e.message }));
+      .then((result) => request === requestId.current && setResolved(result))
+      .catch((e) => request === requestId.current && setResolved({ id: '', label: '', freq: null, note: e.message }));
   };
 
   const setPick = (i: number, value: number) => {

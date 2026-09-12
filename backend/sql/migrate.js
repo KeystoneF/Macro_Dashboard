@@ -1,46 +1,47 @@
-// Applies every .sql file in this directory in name order and records which ones
-// ran. No framework: there are two files, and a dependency that rewrites the
-// schema on its own would be a worse trade than a loop.
+// Run each migration atomically, with one runner holding the schema lock.
 require('dotenv').config({ path: require('node:path').join(__dirname, '..', '.env') });
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { pool } = require('../db');
+const { redact, describe } = require('../redact');
 
-async function main() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      name VARCHAR(255) PRIMARY KEY,
-      ran_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
+async function migrate(database = pool, directory = __dirname) {
+  const client = await database.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(174038201)');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        name VARCHAR(255) PRIMARY KEY,
+        ran_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    const { rows } = await client.query('SELECT name FROM schema_migrations');
+    const already = new Set(rows.map((row) => row.name));
 
-  const { rows: done } = await pool.query('SELECT name FROM schema_migrations');
-  const already = new Set(done.map((r) => r.name));
-
-  const files = fs
-    .readdirSync(__dirname)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
-
-  for (const file of files) {
-    if (already.has(file)) {
-      console.log(`skip  ${file}`);
-      continue;
+    for (const file of fs.readdirSync(directory).filter((name) => name.endsWith('.sql')).sort()) {
+      if (already.has(file)) continue;
+      await client.query(fs.readFileSync(path.join(directory, file), 'utf8'));
+      await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
+      console.log(`ran   ${file}`);
     }
-    const sql = fs.readFileSync(path.join(__dirname, file), 'utf8');
-    // one file can hold several statements, and the driver runs one at a time
-    for (const stmt of sql.split(/;\s*$/m).map((s) => s.trim()).filter(Boolean)) {
-      await pool.query(stmt);
-    }
-    await pool.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
-    console.log(`ran   ${file}`);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
-
-  await pool.end();
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  migrate()
+    .catch((err) => {
+      console.error(redact(describe(err)));
+      process.exitCode = 1;
+    })
+    .finally(() => pool.end());
+}
+
+module.exports = { migrate };

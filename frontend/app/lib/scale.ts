@@ -23,12 +23,11 @@ export function niceScale(min: number, max: number, count = 4) {
 
 // Decimals needed to show the step without trailing noise: 0.25 needs 2, 5 needs 0.
 export const tickDigits = (step: number) =>
-  Math.max(0, Math.min(4, -Math.floor(Math.log10(step))));
+  Number.isFinite(step) && step > 0
+    ? [0, 1, 2, 3, 4].find((digits) => Math.abs(step * 10 ** digits - Math.round(step * 10 ** digits)) < 1e-8) ?? 4
+    : 0;
 
-// Two axes on one chart need the same number of intervals or their gridlines
-// cross each other and the plot reads as broken. Both keep their own round
-// step; the shorter one is extended, alternately at the top and the bottom, so
-// the data stays roughly centred rather than sinking to the floor.
+// Match tick counts on both axes so gridlines align.
 export function alignTickCount(
   a: { lo: number; hi: number; ticks: number[]; step?: number },
   b: { lo: number; hi: number; ticks: number[]; step?: number },

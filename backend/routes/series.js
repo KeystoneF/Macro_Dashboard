@@ -21,10 +21,7 @@ const CATALOGUE_CACHE_MS = 6 * 60 * 60_000;
 
 const byId = (id) => CATALOGUE.find((s) => s.id === id);
 
-// A series found through search is not in the curated list, so it arrives as
-// "source:id" and its label, units and frequency are read from the provider
-// rather than from a table we maintain. The prefix is required: a bare id
-// cannot say whether GDP means the FRED series or a Valet one.
+// Discovered series use source:id to avoid provider ID collisions.
 const DISCOVERED = /^(fred|boc|statcan):(.+)$/;
 
 // what each provider will accept in an id, so nothing unchecked reaches a URL
@@ -44,9 +41,7 @@ function discoveredMeta(ref) {
   return { src, id };
 }
 
-// Metadata for a discovered series, so the chart gets real units and frequency:
-// both matter, because the axis split reads units and the gap detection reads
-// the cadence.
+// Read discovered series metadata for axis units and gap detection.
 const metaFor = (ref) =>
   cached(`meta:${ref}`, META_CACHE_MS, async () => {
     const found = discoveredMeta(ref);
@@ -82,7 +77,7 @@ function sweepFreshness() {
   return sweeping;
 }
 
-sweepFreshness();
+router.warm = sweepFreshness;
 
 router.get('/catalogue', (req, res) => {
   if (!sweeping && Date.now() - sweptAt > CATALOGUE_CACHE_MS) sweepFreshness();
@@ -99,21 +94,22 @@ router.get('/catalogue', (req, res) => {
   });
 });
 
-// Shared by the JSON route and the CSV export. The export used to fetch the
-// JSON route over HTTP, which broke as soon as the API required a session:
-// the internal request carried no cookie and came back 401. An endpoint should
-// never call itself.
+// Share parsing between JSON and CSV routes.
 function parseRequest(query) {
-  const ids = String(query.ids || '')
+  const ids = [...new Set(String(query.ids || '')
     .split(',')
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter(Boolean))];
   // shape-checked, not just defaulted: it is concatenated into the Valet query
   // string downstream, where anything else could add parameters of its own
   const start = query.start ? isoDate(query.start) : isoAgo(10);
 
   if (!ids.length) return { error: 'ids required' };
+  if (ids.length > 12) return { error: 'request at most 12 series at a time' };
   if (!start) return { error: 'start must be a date as YYYY-MM-DD' };
+  if (start < '1600-01-01' || start > new Date().toISOString().slice(0, 10)) {
+    return { error: 'start must be between 1600-01-01 and today' };
+  }
 
   const unknown = ids.filter((id) => !byId(id) && !discoveredMeta(id));
   if (unknown.length) return { error: `unknown series: ${unknown.join(', ')}` };
@@ -121,10 +117,7 @@ function parseRequest(query) {
   return { ids, start };
 }
 
-// Cached per series, not per request. Keying on the whole id list meant adding
-// a fifth series to a chart re-pulled the other four from upstream, and with
-// two rate-limited FRED calls behind each of them that was the difference
-// between a click and a five second wait.
+// Cache each series independently so adding one does not refetch the others.
 const oneSeries = (ref, start) =>
   cached(`obs:${ref}:${start}`, CACHE_MS, async () => {
     const meta = byId(ref) || (await metaFor(ref));
@@ -153,10 +146,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Long format, one block of columns per series rather than one series
-// continuing underneath the last in the same columns. Each block keeps its own
-// dates: series here run at different frequencies and nothing is aligned onto
-// another series' calendar, so a shorter series just runs out of rows.
+// Export one column block per series, each with its own dates.
 const COLUMNS = ['series_id', 'label', 'country', 'source', 'units', 'date', 'value'];
 
 router.get('/csv', async (req, res) => {

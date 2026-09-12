@@ -1,7 +1,4 @@
-// Every source hands back a different period string. FRED and Valet print
-// YYYY-MM-DD, OECD prints YYYY-MM or YYYY-Qn, FMP's intraday bars print
-// YYYY-MM-DDTHH:MM:SS, and Date parses only some of those the same way in
-// every browser, so all of them go through here rather than through `new Date`.
+// Parse provider periods consistently, including quarters and intraday bars.
 export function toTime(period: string): number {
   const t = period.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (t) return Date.UTC(+t[1], +t[2] - 1, +t[3], +t[4], +t[5], +(t[6] ?? 0));
@@ -71,10 +68,7 @@ export type Obs = { d: string; v: number };
 // an actual print and the panel says n/a instead.
 const REACH_MS = 200 * 864e5;
 
-// Parsed once per series rather than once per mousemove. The readout runs this
-// for every line on the chart every time the cursor moves, and re-parsing
-// 30,000 period strings at that rate was a large part of what made a 25 year
-// window with five daily series stop responding.
+// Cache timestamps by series identity for fast hover lookups.
 const parsed = new WeakMap<Obs[], number[]>();
 
 function timesOf(points: Obs[]): number[] {
@@ -83,9 +77,7 @@ function timesOf(points: Obs[]): number[] {
   return times;
 }
 
-// The nearest observation that exists, never an interpolated one. Every source
-// is sorted ascending before it reaches the page, so this bisects rather than
-// scanning.
+// Binary-search sorted observations; never interpolate values.
 export function nearest(points: Obs[], t: number): Obs | null {
   if (!points.length) return null;
 

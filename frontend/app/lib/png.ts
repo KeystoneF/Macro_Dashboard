@@ -1,13 +1,9 @@
 'use client';
 
-// Saves a live <svg> as a PNG. The chart is already vector on the page, so this
-// serialises what is on screen rather than redrawing it, and nothing can drift
-// between the chart an analyst approved and the image they paste into a note.
+// Export the rendered SVG so the PNG matches the chart.
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-// Three, not two. The heatmap puts a ticker on tiles about thirteen units wide
-// in a thousand unit viewBox, and at 2x those land near nine physical pixels
-// and turn to mush. At 3x they are legible in a pasted image.
+// Render at 3x to keep dense ticker labels legible.
 const SCALE = 3;
 
 export function svgToPng(svg: SVGSVGElement, filename: string, background: string, font: string) {

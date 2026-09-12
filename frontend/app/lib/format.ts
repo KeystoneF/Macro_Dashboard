@@ -1,8 +1,6 @@
 import { COLOR } from '../theme';
 
-// Price, percent and quote age, shared by the boards that show them. The brief
-// and the FX module print the same figures in different shapes, and a second
-// copy of these drifts from the first.
+// Shared market-board formatting.
 
 export const fmtPrice = (v: number | null | undefined, decimals: number) =>
   v == null
@@ -15,9 +13,7 @@ export const fmtPct = (v: number | null | undefined) =>
 export const pctColor = (v: number | null | undefined) =>
   v == null ? COLOR.dim : v < 0 ? COLOR.bad : COLOR.good;
 
-// How far behind the clock an instrument's last print is. FMP delays some and
-// not others, and the number is the point: gold runs about ten minutes back on
-// this plan while the majors are seconds back.
+// Age of the provider's quote, not the latest request.
 export const minutesBehind = (quotedAt: string | null) =>
   quotedAt == null ? null : Math.floor((Date.now() - Date.parse(quotedAt)) / 60_000);
 

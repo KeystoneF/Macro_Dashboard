@@ -4,13 +4,7 @@ import { useEffect, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { COLOR } from '../theme';
 
-// The woven ribbon behind the splash pages. Strands travel near-parallel and
-// weave past each other rather than crossing at steep angles, which is what
-// reads as depth instead of as noise.
-//
-// `band` is where the stack sits vertically, as a fraction of the page: 0.905
-// puts it along the bottom edge, lower numbers lift it up. Both splash pages
-// take the default, on purpose: the wave should read the same on each.
+// Animated splash ribbon. band sets its vertical position.
 
 const STRANDS = 18;
 

@@ -1,8 +1,5 @@
-// Squarified treemap. Tiles are laid out in rows across the shorter side of the
-// remaining space, which keeps them close to square: long thin slivers are
-// unreadable and make areas impossible to compare by eye.
-//
-// Bruls, Huizing and van Wijk, "Squarified Treemaps" (2000).
+// Squarified treemap: Bruls, Huizing and van Wijk (2000).
+// Build rows along the shorter side to keep tiles near square.
 
 export type Rect = { x: number; y: number; w: number; h: number };
 

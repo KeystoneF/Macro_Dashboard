@@ -1,10 +1,4 @@
-// What the nine modules are showing right now, as one flat list of facts.
-//
-// Every fact here was pulled from a source by the module that owns it: this
-// reads those modules through their own functions rather than over HTTP, which
-// would carry no session cookie. Nothing is worked out here but the difference
-// between two published figures, which is the arithmetic the sector board's
-// relative column already does.
+// Gather each module's sourced facts for the daily brief.
 
 const { cached, pool, SOURCE_NAME, observations, isoAgo } = require('./providers');
 const { redact, describe } = require('./redact');
@@ -32,14 +26,8 @@ const MODULE = {
 
 const CACHE_MS = 30 * 60_000; // the fastest of these prints once a day
 
-// National sources for the two countries that have one here. The OECD copy of
-// the same figure lands weeks after the release, so every other country is
-// taken from the snapshot module 6 already pulls.
-//
-// US prices are FRED's own percent change from a year ago rather than the index.
-// The 12 month change BLS puts in the headline is taken on the unadjusted index,
-// so this is CPIAUCNS and not the seasonally adjusted CPIAUCSL, which prints a
-// tenth or two away from what an analyst reads anywhere else.
+// Use national sources for Canada and the US, with OECD for other countries.
+// US headline CPI uses the unadjusted index's annual change.
 const METRICS = [
   { key: 'ca-cpi', country: 'CAN', label: 'CPI, all items y/y', src: 'boc', id: 'STATIC_TOTALCPICHANGE', freq: 'Monthly', units: '%', digits: 1, kind: 'cpi' },
   { key: 'us-cpi', country: 'USA', label: 'CPI, all items y/y', src: 'fred', id: 'CPIAUCNS', fredUnits: 'pc1', freq: 'Monthly', units: '%', digits: 1, kind: 'cpi' },
@@ -56,9 +44,7 @@ const FEED_COUNTRY = { CAN: 'CA', USA: 'US' };
 
 const YEARS = 3; // far enough back that a policy rate has moved inside the window
 
-// How long the newest value has stood. A policy rate that has not moved since
-// March is the fact worth reading beside it, and a CPI print is never the same
-// two months running, so one walk answers for both.
+// Find when the latest value last changed within the available history.
 function unchangedSince(obs) {
   const last = obs[obs.length - 1];
   let i = obs.length - 1;
@@ -161,9 +147,7 @@ async function metrics(country) {
 
   if (wanted) return { rows, truncated: 0, error: snapshot.error || null };
 
-  // No country picked, so the panel answers "what printed". The two with a
-  // national source keep every measure; the rest bring their newest print only,
-  // or fourteen rows would be one measure in fourteen alphabetical countries.
+  // Keep all national metrics and the newest metric from each other country.
   const elsewhere = rows.filter((r) => !NATIONAL[r.country]).sort(newest);
 
   const seen = new Set();
@@ -205,10 +189,7 @@ const WINDOWS = {
   monthly: { days: 30, change: '1M' },
 };
 
-// Periods sort as text everywhere else here, and across sources they do not:
-// OECD's "2026-Q2" sorts above FRED's "2026-07" on the Q alone, which put a
-// quarterly GDP print ahead of a monthly CPI released two months later. This is
-// what lib/time.ts does on the page, over the same four shapes.
+// Compare mixed monthly and quarterly periods chronologically.
 function periodTime(period) {
   const p = String(period || '');
   const q = p.match(/^(\d{4})-Q(\d)$/);
@@ -449,9 +430,7 @@ function internationalFacts(snapshot, wanted) {
     .slice(0, OECD_MAX);
 }
 
-// The brief's market panel quotes two funds the FX and commodity boards do not,
-// so the union is quoted once and the rows are split back to the module each
-// one belongs to.
+// Quote the combined board once, then assign each row to its module.
 const BRIEF_ONLY = BRIEF.filter((b) => ![...FX, ...COMMODITIES].some((i) => i.symbol === b.symbol));
 const BOARD = [...FX, ...COMMODITIES, ...BRIEF_ONLY];
 const BOARD_TAKE = 8;
@@ -526,10 +505,7 @@ async function facts({ window = 'daily', country = 'all' } = {}) {
     gather('heatmap', async () => heatmapFacts(await markets.heatmapData('sp500'), w.change)),
   ]);
 
-  // The same figure can reach two modules: Canada has no national GDP source, so
-  // the key metrics panel and the international module both carry the OECD one,
-  // and the panel would rank it twice. First gathered wins, which is the module
-  // whose own page the analyst would open to see it.
+  // Deduplicate facts shared by modules; the first source wins.
   const seen = new Set();
   const once = done.flatMap((d) => d.facts).filter((f) => {
     const key = `${f.label}|${f.value}|${f.period}`;
