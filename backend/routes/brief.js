@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { fail } = require('../redact');
-const { metrics, countries, WINDOWS } = require('../desk');
+const { metrics, countries, WINDOWS, FEED_COUNTRY } = require('../desk');
 const { digest } = require('../digest');
+const watchlists = require('../watchlists');
+
+const DECK_ROWS = 8;
 
 // ISO3 from the OECD country list, or every country at once. Checked rather
 // than passed through: it reaches a filter and a cache key.
@@ -45,6 +48,31 @@ router.get('/digest', async (req, res) => {
 
   try {
     res.json(await digest({ window, country: asked.country }));
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// Upcoming economic releases for the window, from module 8's calendar.
+router.get('/deck', async (req, res) => {
+  const asked = parseCountry(req.query);
+  if (asked.error) return res.status(400).json({ error: asked.error });
+
+  const window = String(req.query.window || 'daily');
+  if (!Object.hasOwn(WINDOWS, window)) return res.status(400).json({ error: `unknown window: ${window}` });
+
+  const feed = asked.country === 'all' ? 'all' : FEED_COUNTRY[asked.country] || null;
+  const from = watchlists.today();
+  const to = watchlists.offset(from, WINDOWS[window].days);
+  const fetchedAt = new Date().toISOString();
+  if (!feed) return res.json({ window, country: asked.country, rows: [], total: 0, from, to, fetchedAt });
+
+  try {
+    const { rows } = await watchlists.calendar({ from, to, country: feed });
+    // the calendar answers by date, so the part of today already printed is dropped here
+    const ahead = rows.filter((r) => r.date.replace(' ', 'T') + 'Z' >= fetchedAt)
+      .map(({ date, country, event, impact, unit, estimate, previous }) => ({ date, country, event, impact, unit, estimate, previous }));
+    res.json({ window, country: asked.country, rows: ahead.slice(0, DECK_ROWS), total: ahead.length, from, to, fetchedAt });
   } catch (err) {
     fail(res, err);
   }

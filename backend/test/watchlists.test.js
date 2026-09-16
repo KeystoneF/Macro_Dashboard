@@ -112,3 +112,28 @@ test('routes reject invalid filters before providers and CSV neutralizes formula
   assert.match(await csv.text(), /'=HYPERLINK/);
 });
 
+test('the brief deck keeps releases still ahead, caps the rows and follows the country', async (t) => {
+  const app = express(); app.set('query parser', 'simple'); app.use('/api/brief', require('../routes/brief'));
+  const server = app.listen(0, '127.0.0.1'); await new Promise((r) => server.once('listening', r));
+  t.after(() => new Promise((r) => server.close(r)));
+  const base = `http://127.0.0.1:${server.address().port}/api/brief/deck`;
+  const asked = [];
+  t.mock.method(service, 'calendar', async (options) => {
+    asked.push(options.country);
+    const soon = new Date(Date.now() + 36e5).toISOString().slice(0, 19).replace('T', ' ');
+    return { rows: [
+      { date: '2000-01-01 12:00:00', country: 'US', event: 'Printed', impact: 'High', unit: '%', actual: 1, estimate: 1, previous: 1 },
+      ...Array.from({ length: 10 }, (_, i) => ({ date: soon, country: 'CA', event: `Ahead ${i}`, impact: 'Low', unit: '', actual: null, estimate: null, previous: 2 })),
+    ] };
+  });
+  const deck = await (await fetch(base + '?window=weekly&country=CAN')).json();
+  assert.deepEqual(asked, ['CA']);
+  assert.equal(deck.total, 10);
+  assert.equal(deck.rows.length, 8);
+  assert.ok(deck.rows.every((r) => r.event.startsWith('Ahead') && !('actual' in r)));
+  assert.equal(deck.rows[0].estimate, null);
+  const none = await (await fetch(base + '?window=daily&country=DEU')).json();
+  assert.deepEqual(none.rows, []);
+  assert.equal(asked.length, 1);
+  assert.equal((await fetch(base + '?window=yearly')).status, 400);
+});

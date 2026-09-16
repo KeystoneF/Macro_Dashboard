@@ -42,6 +42,10 @@ export async function populated(page: Page) {
       items: [], ranked: false, model: null, modelError: null, facts: 2,
       missing: [], skipped: [], modules: ['01'], gatheredAt: stamp,
     };
+    else if (path === '/api/brief/deck') body = {
+      country: q.get('country') || 'all', window: q.get('window') || 'daily', total: 9, from: '2026-09-16', to: '2026-09-17', fetchedAt: stamp,
+      rows: [{ date: '2026-09-16 12:30:00', country: 'CA', event: 'Test housing starts', impact: 'Medium', unit: 'K', estimate: 240, previous: 229.1 }],
+    };
     else if (path === '/api/news') body = {
       items: [{
         id: 'test-news', source: 'StatCan', feedId: 'test-feed', country: 'CA', category: 'Economy',

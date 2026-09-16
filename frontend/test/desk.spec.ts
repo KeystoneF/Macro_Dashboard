@@ -93,6 +93,7 @@ test('populated modules render charts and export PNGs', async ({ page }, testInf
     await page.goto('/' + path);
     await expect(page.locator('main')).toBeVisible();
     if (path === 'brief') await expect(page.getByText('Canada test CPI')).toBeVisible();
+    if (path === 'brief') await expect(page.getByText('CA: Test housing starts')).toBeVisible();
     if (['series', 'yield-curve', 'fx', 'international', 'sectors', 'heatmap'].includes(path)) {
       await expect(page.locator('main svg[viewBox]').first()).toBeVisible();
     }

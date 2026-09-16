@@ -83,6 +83,18 @@ type MarketRow = {
 };
 
 type Board = { rows: MarketRow[]; quotedAt: string | null; fetchedAt: string };
+
+type Release = {
+  date: string;
+  country: string;
+  event: string;
+  impact: string;
+  unit: string;
+  estimate: number | null;
+  previous: number | null;
+};
+
+type Deck = { window: string; country: string; rows: Release[]; total: number; fetchedAt: string };
 type Feed = { items: Item[]; fetchedAt: string };
 
 // One window drives both halves of the page: the feed reaches back this far and
@@ -111,6 +123,7 @@ export default function BriefPage() {
   const [panelCountry, setPanelCountry] = useState<string | null>(null);
   const [digest, setDigest] = useState<Digest | null>(null);
   const [board, setBoard] = useState<Board | null>(null);
+  const [deck, setDeck] = useState<Deck | null>(null);
   const [feed, setFeed] = useState<Feed | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -120,7 +133,7 @@ export default function BriefPage() {
   const tab = PERIODS.find((p) => p.key === period) ?? PERIODS[0];
 
   const mounted = useRef(true);
-  const requests = useRef({ markets: 0, news: 0, panel: 0, digest: 0 });
+  const requests = useRef({ markets: 0, news: 0, panel: 0, digest: 0, deck: 0 });
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -162,10 +175,18 @@ export default function BriefPage() {
       .catch((e) => mounted.current && request === requests.current.digest && setError(e.message));
   }, [period, country]);
 
+  const loadDeck = useCallback(() => {
+    const request = ++requests.current.deck;
+    getJson<Deck>(`/api/brief/deck?window=${period}&country=${country}`)
+      .then((d) => mounted.current && request === requests.current.deck && setDeck(d))
+      .catch((e) => mounted.current && request === requests.current.deck && setError(e.message));
+  }, [period, country]);
+
   useEffect(() => {
     loadPanel();
     loadDigest();
-  }, [loadPanel, loadDigest]);
+    loadDeck();
+  }, [loadPanel, loadDigest, loadDeck]);
 
   useEffect(() => {
     loadNews();
@@ -181,9 +202,10 @@ export default function BriefPage() {
   const reload = useCallback(() => {
     loadPanel();
     loadDigest();
+    loadDeck();
     loadNews();
     loadMarkets(true);
-  }, [loadPanel, loadDigest, loadNews, loadMarkets]);
+  }, [loadPanel, loadDigest, loadDeck, loadNews, loadMarkets]);
 
   useNavRefresh('brief', reload);
   useFocusRefresh(reload);
@@ -191,6 +213,7 @@ export default function BriefPage() {
   // the answer names the window and country it was built for, so a ranking for
   // the previous pick is not left on screen while the next one is in flight
   const ranking = digest && digest.window === period && digest.country === country ? digest : null;
+  const ahead = deck && deck.window === period && deck.country === country ? deck : null;
 
   const picked = panel?.countries.find((c) => c.code === country) ?? null;
   // the aggregator's publishers cover two countries, so any other choice has no
@@ -367,12 +390,23 @@ export default function BriefPage() {
 
           <section style={card}>
             <h2 style={T.h2}>On deck</h2>
-            <p style={{ ...T.desc, marginBottom: 0 }}>
-              Needs{' '}
-              <Link href={`/${watchlist?.slug}`} style={S.link}>
-                mod 8
-              </Link>
-            </p>
+            <p style={T.desc}>Releases scheduled in the window, times in UTC.</p>
+            {feedless && <p style={S.quiet}>No calendar for {picked?.name ?? 'this country'}.</p>}
+            {!feedless && !ahead && <p style={S.quiet}>Loading</p>}
+            {!feedless && ahead && !ahead.rows.length && <p style={S.quiet}>Nothing scheduled in this window</p>}
+            {!feedless &&
+              (ahead?.rows ?? []).map((r, i) => (
+                <ReleaseRow key={`${r.date}:${r.event}`} release={r} last={i === ahead!.rows.length - 1} />
+              ))}
+            {!feedless && ahead && ahead.total > ahead.rows.length && (
+              <p style={{ ...S.quiet, marginTop: 10 }}>
+                {ahead.total - ahead.rows.length} more on the{' '}
+                <Link href={`/${watchlist?.slug}`} style={S.link}>
+                  watchlist module
+                </Link>
+                .
+              </p>
+            )}
           </section>
         </div>
       </div>
@@ -506,6 +540,33 @@ function Stream({
           .
         </p>
       )}
+    </div>
+  );
+}
+
+const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// A release ahead of its print shows the consensus and the last figure, both from FMP.
+function ReleaseRow({ release, last }: { release: Release; last: boolean }) {
+  const when = new Date(release.date.replace(' ', 'T') + 'Z');
+  const stamp = `${DAY[when.getUTCDay()]} ${release.date.slice(11, 16)}`;
+  const figure = (v: number | null) => (v == null ? 'n/a' : `${v}${release.unit ? ` ${release.unit}` : ''}`);
+
+  return (
+    <div style={{ ...S.metricRow, borderBottom: last ? 'none' : `1px solid ${COLOR.hair}` }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={S.metricName}>
+          {release.country}: {release.event}
+        </div>
+        <div style={S.sub}>
+          {stamp}
+          {release.impact ? `, ${release.impact.toLowerCase()} impact` : ''}
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+        <div style={{ fontSize: 12.5, color: release.estimate == null ? COLOR.dim : COLOR.ink }}>{figure(release.estimate)}</div>
+        <div style={S.sub}>prev {figure(release.previous)}</div>
+      </div>
     </div>
   );
 }

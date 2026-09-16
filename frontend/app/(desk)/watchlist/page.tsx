@@ -61,7 +61,7 @@ function Status({ loading, error, retry, empty }: { loading: boolean; error?: st
 }
 function Pager({ data, page, setPage, name }: { data?: { total?: number; pages?: number }; page: number; setPage: (p: number) => void; name: string }) {
   const pages = data?.pages || 0;
-  return <div style={{ ...T.controls, marginTop: 14, marginBottom: 0 }}><span style={{ fontSize: 12, color: COLOR.dim }}>{data ? `${data.total ?? 0} results · Page ${pages ? page : 0} of ${pages}` : ' '}</span><div style={T.spacer} />
+  return <div style={{ ...T.controls, marginTop: 14, marginBottom: 0 }}><span style={{ fontSize: 12, color: COLOR.dim }}>{data ? `${data.total ?? 0} results, page ${pages ? page : 0} of ${pages}` : ' '}</span><div style={T.spacer} />
     <button aria-label={`Previous ${name} page`} style={btn(!data || page <= 1)} disabled={!data || page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
     <button aria-label={`Next ${name} page`} style={btn(!data || page >= pages)} disabled={!data || page >= pages} onClick={() => setPage(page + 1)}>Next</button></div>;
 }
@@ -80,7 +80,7 @@ function Export({ url, name, enabled, page = false }: { url: string; name: strin
     } catch (err) { setError(err instanceof Error ? err.message : 'Download failed. Try again.'); }
     finally { setBusy(false); }
   }
-  return <div><button style={btn(!enabled || busy)} disabled={!enabled || busy} onClick={download} aria-label={`Download ${name} CSV`}>{busy ? 'Downloading' : page ? 'CSV · this page' : 'Download CSV'}</button>{error && <p role="alert" style={{ fontSize: 12 }}>{error}</p>}</div>;
+  return <div><button style={btn(!enabled || busy)} disabled={!enabled || busy} onClick={download} aria-label={`Download ${name} CSV`}>{busy ? 'Downloading' : page ? 'CSV of this page' : 'Download CSV'}</button>{error && <p role="alert" style={{ fontSize: 12 }}>{error}</p>}</div>;
 }
 function Change({ value }: { value: number | null }) {
   return <span style={{ color: value == null ? COLOR.dim : value < 0 ? COLOR.bad : value > 0 ? COLOR.accentLt : COLOR.ink }}>{value == null ? 'n/a' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`}</span>;
@@ -109,11 +109,10 @@ export default function WatchlistPage() {
         <label style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: '1 1 260px', minWidth: 0, fontSize: 12 }}>Watchlist<select style={{ ...field, width: '100%' }} value={selected?.id || ''} onChange={(e) => setSelection(e.target.value)} disabled={!visible.length}><option value="" disabled>Select a watchlist</option>{visible.map((r) => <option key={r.id} value={r.id}>{r.name}{r.count === null ? '' : ` (${r.count})`}</option>)}</select></label>
       </div>
       <Status {...lists} retry={refresh} empty={!!lists.data && !visible.length} />
-      {selected && <p style={{ ...T.desc, marginBottom: 0 }}>{selected.description || selected.name}{selected.tags.length ? ` · ${selected.tags.join(' / ')}` : ''} · {selected.count === null ? 'company count not published' : `${selected.count} companies in KeyStocks`}</p>}
+      {selected && <p style={{ ...T.desc, marginBottom: 0 }}>{selected.description || selected.name}{selected.tags.length ? `. ${selected.tags.join(', ')}` : ''}. {selected.count === null ? 'Company count not published' : `${selected.count} companies in KeyStocks`}</p>}
     </section>
     {selected && <Watchlist key={selected.id} list={selected} revision={revision} refresh={refresh} />}
     <Calendar revision={revision} refresh={refresh} />
-    <footer style={{ ...T.desc, borderTop: `1px solid ${COLOR.line}`, paddingTop: 14 }}>Lists and releases from KeyStocks, prices and calendars from FMP. Cached up to five minutes. Earnings dates can move.</footer>
   </main>;
 }
 
@@ -130,7 +129,7 @@ function Watchlist({ list, revision, refresh }: { list: List; revision: number; 
   const reportName = report === 'ttm' ? 'TTM' : report === 'quarter' ? 'quarterly' : 'annual';
   return <>
     <section style={panel} aria-labelledby="companies-title">
-      <div style={head}><div><h2 id="companies-title" style={T.h2}>Companies &amp; performance</h2><p style={T.desc}>Prices in listing currency · Returns in percent · Financials in reported currency</p></div><Export url={companyUrl} name="companies" enabled={!!companies.data?.rows.length} page /></div>
+      <div style={head}><div><h2 id="companies-title" style={T.h2}>Companies &amp; performance</h2><p style={T.desc}>Prices in listing currency, returns in percent, financials in reported currency</p></div><Export url={companyUrl} name="companies" enabled={!!companies.data?.rows.length} page /></div>
       <div style={{ ...T.controls, alignItems: 'end', gap: 12 }}><Label text="Search companies"><input style={field} type="search" placeholder="Company or ticker" value={companyQuery} onChange={(e) => { setCompanyQuery(e.target.value); setPage(1); }} /></Label><Label text="Financial period"><select style={field} value={report} onChange={(e) => { setReport(e.target.value); setPage(1); }}><option value="ttm">Trailing twelve months</option><option value="annual">Annual</option><option value="quarter">Quarterly</option></select></Label></div>
       <Status {...companies} retry={refresh} empty={!!companies.data && !companies.data.rows.length} />
       {companies.data?.warnings?.map((w) => <p key={w} role="status" style={T.desc}>{w}</p>)}
@@ -143,7 +142,7 @@ function Watchlist({ list, revision, refresh }: { list: List; revision: number; 
     <div style={T.splitWide}>
       <NewsPanel id={list.id} revision={revision} refresh={refresh} />
       <section style={panel} aria-labelledby="earnings-title">
-        <div style={head}><div><h2 id="earnings-title" style={T.h2}>Upcoming earnings</h2><p style={T.desc}>Across this watchlist · FMP estimates</p></div><Export url={earningsUrl} name="earnings" enabled={!!earnings.data?.rows.length} /></div>
+        <div style={head}><div><h2 id="earnings-title" style={T.h2}>Upcoming earnings</h2><p style={T.desc}>Across this watchlist, FMP estimates</p></div><Export url={earningsUrl} name="earnings" enabled={!!earnings.data?.rows.length} /></div>
         <Label text="Earnings horizon"><select style={field} value={days} onChange={(e) => setDays(e.target.value)}>{[7, 30, 90].map((d) => <option key={d} value={d}>Next {d} days</option>)}</select></Label>
         <Status {...earnings} retry={refresh} empty={!!earnings.data && !earnings.data.rows.length} />
         {earnings.data && <p style={{ ...T.desc, marginTop: 10 }}>Matched {earnings.data.coverage}{list.count == null ? '' : ` of ${list.count}`} companies. A company with no row has no FMP date in this window.</p>}
@@ -166,18 +165,18 @@ function NewsPanel({ id, revision, refresh }: { id: string; revision: number; re
   const url = `/api/watchlists/${id}/news?${query({ ...filters, q, page })}`;
   const news = useData<Data<News>>(valid ? url : null, revision);
   return <section style={panel} aria-labelledby="releases-title">
-    <div style={head}><div><h2 id="releases-title" style={T.h2}>News releases</h2><p style={T.desc}>Watchlist companies · Newest first</p></div><Export url={url} name="news" enabled={valid && !!news.data?.rows.length} page /></div>
+    <div style={head}><div><h2 id="releases-title" style={T.h2}>News releases</h2><p style={T.desc}>Watchlist companies, newest first</p></div><Export url={url} name="news" enabled={valid && !!news.data?.rows.length} page /></div>
     <Label text="Search releases"><input style={field} type="search" placeholder="Search company news" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></Label>
     <div style={{ ...T.controls, marginTop: 12, gap: 12, alignItems: 'end' }}><Label text="From"><input style={field} type="date" value={filters.from} onChange={(e) => change('from', e.target.value)} /></Label><Label text="To"><input style={field} type="date" value={filters.to} onChange={(e) => change('to', e.target.value)} /></Label><Label text="Region"><select style={field} value={filters.region} onChange={(e) => change('region', e.target.value)}><option value="">Canada &amp; US</option><option value="canadian">Canada</option><option value="us">United States</option></select></Label></div>
     <details style={{ marginBottom: 12 }}><summary style={{ cursor: 'pointer', fontSize: 13, padding: '10px 0' }}>More news filters</summary><Status {...choices} retry={refresh} />
       <div style={filterGrid}>{(['category', 'exchange', 'publisher'] as const).map((key) => {
         const values = key === 'category' ? choices.data?.categories : key === 'exchange' ? choices.data?.exchanges : choices.data?.publishers;
         return <Label key={key} text={key[0].toUpperCase() + key.slice(1)}><select style={field} value={filters[key]} onChange={(e) => change(key, e.target.value)} disabled={!choices.data}><option value="">All</option>{values?.map((v) => <option key={v}>{v}</option>)}</select></Label>;
-      })}<Label text="Company"><select style={field} value={filters.company} onChange={(e) => change('company', e.target.value)} disabled={!choices.data}><option value="">All companies</option>{choices.data?.companies.map((c) => <option value={c.id} key={c.id}>{c.symbol} · {c.name}</option>)}</select></Label></div>
+      })}<Label text="Company"><select style={field} value={filters.company} onChange={(e) => change('company', e.target.value)} disabled={!choices.data}><option value="">All companies</option>{choices.data?.companies.map((c) => <option value={c.id} key={c.id}>{c.symbol} {c.name}</option>)}</select></Label></div>
     </details>
     {!valid && <p role="alert">Start date must be on or before the end date.</p>}
     <Status {...news} retry={refresh} empty={!!news.data && !news.data.rows.length} />
-    <div style={{ maxHeight: 680, overflowY: 'auto' }}>{news.data?.rows.map((r) => <article key={r.id} style={{ padding: '14px 0', borderTop: `1px solid ${COLOR.hair}` }}><p style={{ ...T.desc, marginBottom: 5 }}><span style={{ color: COLOR.accentLt }}>{r.symbol}</span> · {r.company}</p><h3 style={{ fontSize: 15, lineHeight: 1.45, fontWeight: 600, marginBottom: 5 }}>{r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer" style={link}>{r.title}</a> : r.title}</h3><p style={{ ...T.desc, marginBottom: 0 }}>{r.publisher} · {r.category} · {r.published ? `${time(r.published)} UTC` : 'n/a'}</p></article>)}</div>
+    <div style={{ maxHeight: 680, overflowY: 'auto' }}>{news.data?.rows.map((r) => <article key={r.id} style={{ padding: '14px 0', borderTop: `1px solid ${COLOR.hair}` }}><p style={{ ...T.desc, marginBottom: 5 }}><span style={{ color: COLOR.accentLt }}>{r.symbol}</span> {r.company}</p><h3 style={{ fontSize: 15, lineHeight: 1.45, fontWeight: 600, marginBottom: 5 }}>{r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer" style={link}>{r.title}</a> : r.title}</h3><p style={{ ...T.desc, marginBottom: 0 }}>{r.publisher}, {r.category}, {r.published ? `${time(r.published)} UTC` : 'n/a'}</p></article>)}</div>
     <Pager data={news.data} page={page} setPage={setPage} name="news" />
   </section>;
 }
@@ -190,7 +189,7 @@ function Calendar({ revision, refresh }: { revision: number; refresh: () => void
   const url = `/api/watchlists/calendar?${query({ from, to, country })}`;
   const calendar = useData<Data<Event>>(valid ? url : null, revision);
   return <section style={panel} aria-labelledby="calendar-title">
-    <div style={head}><div><h2 id="calendar-title" style={T.h2}>Economic release calendar</h2><p style={T.desc}>Canada &amp; United States · Times in UTC · FMP</p></div><Export url={url} name="calendar" enabled={valid && !!calendar.data?.rows.length} /></div>
+    <div style={head}><div><h2 id="calendar-title" style={T.h2}>Economic release calendar</h2><p style={T.desc}>Canada and United States, times in UTC, FMP</p></div><Export url={url} name="calendar" enabled={valid && !!calendar.data?.rows.length} /></div>
     <div style={{ ...T.controls, alignItems: 'end', gap: 12 }}><Label text="Calendar from"><input style={field} type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Label><Label text="Calendar to"><input style={field} type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Label><Label text="Country"><select style={field} value={country} onChange={(e) => setCountry(e.target.value)}><option value="all">Canada &amp; US</option><option value="CA">Canada</option><option value="US">United States</option></select></Label></div>
     {!valid && <p role="alert">Choose a date range of up to 31 days, start on or before the end.</p>}
     <Status {...calendar} retry={refresh} empty={!!calendar.data && !calendar.data.rows.length} />
