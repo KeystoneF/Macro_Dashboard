@@ -39,7 +39,7 @@ after(async () => {
 });
 
 test('protected endpoints require a session', async () => {
-  for (const route of ['brief/metrics', 'news', 'series', 'yields', 'discover', 'international', 'markets/fx', 'valuation']) {
+  for (const route of ['brief/metrics', 'news', 'series', 'yields', 'discover', 'international', 'markets/fx', 'valuation', 'watchlists', 'watchlists/94/news', 'watchlists/calendar']) {
     assert.equal((await request('/api/' + route)).status, 401, route);
   }
 });

@@ -86,7 +86,7 @@ export const MODULES: Module[] = [
     title: 'Watchlist, Earnings & Calendar',
     group: 'Coverage',
     mockup: '5-watchlist-news.html',
-    state: 'mockup',
+    state: 'live',
   },
   {
     num: '09',

@@ -8,6 +8,7 @@ const news = require('./routes/news');
 const yields = require('./routes/yields');
 const international = require('./routes/international');
 const series = require('./routes/series');
+const watchlists = require('./watchlists');
 const { load: loadShiller, SHILLER } = require('./shiller');
 const { FX, COMMODITIES, BRIEF, sectorBoard } = require('./instruments');
 
@@ -503,6 +504,18 @@ async function facts({ window = 'daily', country = 'all' } = {}) {
     gather('sectors', async () => (await sectorAndValuation(w.change)).filter(mine)),
 
     gather('heatmap', async () => heatmapFacts(await markets.heatmapData('sp500'), w.change)),
+
+    gather('watchlist', async () => {
+      if (wanted && !FEED_COUNTRY[wanted]) return [];
+      const to = watchlists.today();
+      const { rows } = await watchlists.calendar({ from: watchlists.offset(to, -w.days + 1), to, country: feed || 'all' });
+      return rows.filter((r) => r.actual !== null).reverse().slice(0, 24).map((r) => fact('watchlist', {
+        country: r.country === 'CA' ? 'CAN' : 'USA', label: r.event,
+        value: `${r.actual}${r.unit ? ` ${r.unit}` : ''}`, period: r.date.slice(0, 10),
+        published: r.date.replace(' ', 'T') + 'Z', source: 'FMP economic calendar',
+        note: r.estimate == null ? null : `Estimate: ${r.estimate}${r.unit ? ` ${r.unit}` : ''}`,
+      }));
+    }),
   ]);
 
   // Deduplicate facts shared by modules; the first source wins.
@@ -529,8 +542,7 @@ async function facts({ window = 'daily', country = 'all' } = {}) {
     country,
     facts: list,
     missing: done.filter((d) => d.error).map((d) => ({ module: d.slug, num: MODULE[d.slug].num, error: d.error })),
-    // module 8 holds no data of its own until Raman's watchlist API lands
-    skipped: [{ module: 'watchlist', num: MODULE.watchlist.num, reason: 'not built' }],
+    skipped: [],
     gatheredAt: new Date().toISOString(),
   };
 }

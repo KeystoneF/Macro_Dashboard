@@ -5,6 +5,18 @@
 *.pem
 *.key
 secrets.json
+secrets.*.json
+credentials.json
+credentials.*.json
+# Supplied API collections and exported environments may contain live tokens.
+[Kk][Ee][Yy][Ss][Tt][Oo][Cc][Kk]*.[Jj][Ss][Oo][Nn]
+*.postman_environment.json
+*.postman_globals.json
+.envrc
+*.p12
+*.pfx
+*.dump
+dump*.sql
 
 
 node_modules/
@@ -23,6 +35,11 @@ dist/
 
 .claude/
 CLAUDE.local.md
+.agents/
+**/humanizer/
+skills-lock.json
+SECURITY.md
+backend/WATCHLIST.md
 
 
 CLAUDE.md

@@ -40,6 +40,10 @@ services:
         sync: false
       - key: FRED_API_KEY
         sync: false
+      - key: KEYSTOCKS_API_KEY
+        sync: false
+      - key: KEYSTOCKS_BASE_URL
+        value: http://52.54.224.232
       - key: OPEN_AI_KEY
         sync: false
 

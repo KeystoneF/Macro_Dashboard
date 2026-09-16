@@ -48,7 +48,7 @@ test('sign-out is reachable at every viewport and reports failures', async ({ pa
   await session(page);
   await page.goto('/watchlist');
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'Provider temporarily unavailable' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ has: page.getByRole('button', { name: 'Dismiss' }) })).toContainText('Provider temporarily unavailable');
   await expect(page.getByRole('navigation', { name: 'Desk modules' })).toBeVisible();
   await page.getByRole('button', { name: 'Dismiss' }).click();
 

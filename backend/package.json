@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "test": "node --test",
+    "security": "node security-check.js",
     "dev": "nodemon server.js",
     "start": "node server.js",
     "migrate": "node sql/migrate.js",

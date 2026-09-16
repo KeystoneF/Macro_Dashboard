@@ -34,6 +34,7 @@ function createApp() {
   const app = express();
   const origins = allowedOrigins();
   const requests = limiter({ max: 240, windowMs: 60_000 });
+  const sources = limiter({ max: 360, windowMs: 60_000 });
 
   app.disable('x-powered-by');
   app.set('trust proxy', trustProxy());
@@ -48,6 +49,11 @@ function createApp() {
       'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
     });
     if (req.secure) res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+
+    // Reserve the request budget before any account/database lookup.
+    if (req.path.startsWith('/api/') && !sources.take(req.ip || req.socket.remoteAddress || 'unknown')) {
+      return res.set('Retry-After', '60').status(429).json({ error: 'too many requests, try again in a minute' });
+    }
 
     // CORS alone does not stop cross-origin writes.
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
@@ -97,7 +103,7 @@ function createApp() {
     }
   });
 
-  for (const route of ['brief', 'yields', 'series', 'discover', 'international', 'markets', 'news', 'valuation']) {
+  for (const route of ['brief', 'yields', 'series', 'discover', 'international', 'markets', 'news', 'valuation', 'watchlists']) {
     app.use(`/api/${route}`, requireAuth, (req, res, next) => {
       if (!requests.take(req.user.id)) {
         return res.set('Retry-After', '60').status(429).json({ error: 'too many requests, try again in a minute' });

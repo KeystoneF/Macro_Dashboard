@@ -1,17 +1,23 @@
 // Strip credentials before logging or returning upstream errors.
 
-const secrets = () =>
-  [
+const secrets = () => {
+  let databasePassword;
+  try { databasePassword = decodeURIComponent(new URL(process.env.DATABASE_URL).password); } catch { /* No URL configured. */ }
+  return [
     process.env.FMP_API_KEY,
     process.env.FRED_API_KEY,
+    process.env.KEYSTOCKS_API_KEY,
     process.env.OPEN_AI_KEY,
     process.env.JWT_SECRET,
     process.env.DB_PASSWORD,
+    process.env.DATABASE_URL,
+    databasePassword,
   ].filter(
     // six, not eight: the dev database password is seven characters and was
     // slipping past the value match on its way into a log line
     (v) => v && v.length >= 6,
   );
+};
 
 function redact(text) {
   let out = String(text ?? '');
@@ -28,6 +34,7 @@ function redact(text) {
   // OpenAI takes its key in an Authorization header rather than in the query
   // string, so it reaches an error as a bearer token or as a bare sk- id
   out = out.replace(/\b(bearer)\s+[A-Za-z0-9._~+/-]{8,}=*/gi, '$1 [redacted]');
+  out = out.replace(/\b(authorization|x-api-key)(["']?\s*[:=]\s*["']?)(?:Bearer\s+)?[^\s,"'\]}]+/gi, '$1$2[redacted]');
   return out.replace(/\bsk-[A-Za-z0-9._-]{8,}/g, '[redacted]');
 }
 
@@ -47,11 +54,11 @@ function describe(err) {
   return parts.join(': ') || 'unknown error';
 }
 
-// The single exit for a failed upstream call: log it, answer 502, leak nothing.
+// Keep upstream/internal details in redacted server logs, not browser responses.
 function fail(res, err) {
   const message = redact(describe(err));
   console.error(message);
-  res.status(502).json({ error: message });
+  res.status(502).json({ error: 'The data provider is unavailable or not configured. Please try again or contact the administrator.' });
 }
 
 module.exports = { redact, describe, fail };

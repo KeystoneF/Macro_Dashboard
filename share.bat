@@ -4,12 +4,8 @@ cd /d "%~dp0"
 
 REM Builds a zip to hand to someone else.
 REM
-REM This uses git archive rather than zipping the folder, and that is the whole
-REM point: git archive can only export files git is tracking, so anything in
-REM .gitignore is excluded by construction. backend\.env holds the FMP key, the
-REM FRED key, the database password and the JWT secret, and it is gitignored, so
-REM it cannot end up in the archive even by accident. Zipping the folder in
-REM Explorer would include it.
+REM Export only committed files, after scanning that exact commit for secrets.
+REM .gitignore does not protect files that were already committed.
 
 git rev-parse --is-inside-work-tree >nul 2>&1
 if errorlevel 1 (
@@ -29,6 +25,14 @@ for /f %%i in ('git status --porcelain') do (
 )
 :ask
 
+node backend\security-check.js --head
+if errorlevel 1 (
+  echo [X] Repository security check failed. Archive creation stopped.
+  echo     Install backend dependencies if the checker cannot run.
+  pause
+  exit /b 1
+)
+
 set STAMP=%DATE:~-4%%DATE:~4,2%%DATE:~7,2%
 set OUT=macro-desk-%STAMP%.zip
 
@@ -44,6 +48,7 @@ echo Wrote %OUT%
 echo.
 echo Excluded, because they are gitignored:
 echo   backend\.env      keys, database password, JWT secret
+echo   KeyStocks.json    supplied API collection with token
 echo   node_modules\     the recipient runs npm install
 echo   .next\            build output
 echo.

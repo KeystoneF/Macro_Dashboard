@@ -493,5 +493,6 @@ router.briefBoard = () => instrumentRows(BRIEF, false);
 router.instrumentRows = instrumentRows;
 router.sectorRows = sectorRows;
 router.heatmapData = heatmapData;
+router.fmp = fmp;
 
 module.exports = router;
