@@ -36,6 +36,7 @@ function useDebounced(value: string) {
 }
 const query = (values: Record<string, string | number>) => new URLSearchParams(Object.entries(values).filter(([, v]) => v !== '').map(([k, v]) => [k, String(v)])).toString();
 const number = (v: number | null) => v == null ? 'n/a' : v.toLocaleString('en-CA', { maximumFractionDigits: 2 });
+const dollars = (v: number | null) => v == null ? 'n/a' : `$${v.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dateAt = (days: number) => new Date(Date.now() + days * 864e5).toISOString().slice(0, 10);
 const time = (v: string | null) => v ? v.replace('T', ' ').slice(0, 16) : 'n/a';
 const button: CSSProperties = { ...T.control, minHeight: 40, whiteSpace: 'nowrap' };
@@ -135,7 +136,7 @@ function Watchlist({ list, revision, refresh }: { list: List; revision: number; 
       {companies.data?.warnings?.map((w) => <p key={w} role="status" style={T.desc}>{w}</p>)}
       {companies.data && list.count !== null && companies.data.coverage !== list.count && <p style={T.desc}>{companies.data.coverage} of {list.count} listed companies have {reportName} figures.</p>}
       {!!companies.data?.rows.length && <Table label="Company prices and returns" heads={['Company / ticker', 'Price', '1D', '1W', '1M', 'YTD', '1Y', 'Quote time (UTC)', 'Financial period', 'Revenue', 'EPS']}>
-        {companies.data.rows.map((r) => <tr key={r.id}><th scope="row" style={rowHead}><span style={{ display: 'block', color: COLOR.accentLt }}>{r.symbol || 'No ticker'}</span><span style={companyName}>{r.name}</span></th><td style={td}>{number(r.price)}</td>{(['day', 'week', 'month', 'ytd', 'year'] as const).map((k) => <td key={k} style={td}><Change value={r[k]} /></td>)}<td style={td}>{time(r.quotedAt)}</td><td style={td}>{r.period || 'n/a'}</td><td style={td}>{number(r.revenue)}</td><td style={td}>{number(r.eps)}</td></tr>)}
+        {companies.data.rows.map((r) => <tr key={r.id}><th scope="row" style={rowHead}><span style={{ display: 'block', color: COLOR.accentLt }}>{r.symbol || 'No ticker'}</span><span style={companyName}>{r.name}</span></th><td style={td}>{dollars(r.price)}</td>{(['day', 'week', 'month', 'ytd', 'year'] as const).map((k) => <td key={k} style={td}><Change value={r[k]} /></td>)}<td style={td}>{time(r.quotedAt)}</td><td style={td}>{r.period || 'n/a'}</td><td style={td}>{number(r.revenue)}</td><td style={td}>{number(r.eps)}</td></tr>)}
       </Table>}
       <Pager data={companies.data} page={page} setPage={setPage} name="companies" />
     </section>

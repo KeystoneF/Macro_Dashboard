@@ -36,6 +36,9 @@ export default function config(phase: string): NextConfig {
 
   return {
     poweredByHeader: false,
+    // the api gives each upstream 20s and a watchlist route calls two in turn, next's
+    // proxy default is 30s and answers a bare 500 when it gives up first
+    experimental: { proxyTimeout: 60_000 },
     async headers() {
       return [{
         source: '/((?!api/).*)',
