@@ -26,6 +26,13 @@ export const COLOR = {
   bad: '#E0645F',
 };
 
+// The move colours as channels, for a fill mixed or washed at runtime.
+export const RGB = {
+  good: [79, 183, 158],
+  bad: [224, 100, 95],
+  panel2: [56, 76, 94],
+};
+
 // Series line colours, in the order a chart assigns them.
 export const PLOT = [COLOR.us, COLOR.ca, COLOR.accent, '#B7A3D8', '#D8C48A'];
 

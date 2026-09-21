@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { CSSProperties, Ref } from 'react';
 import * as T from '../../theme';
-import { COLOR, FONT, card } from '../../theme';
+import { COLOR, FONT, RGB, card } from '../../theme';
 import { getJson } from '../../lib/api';
 import { svgToPng } from '../../lib/png';
 import { squarify, type Tile } from '../../lib/treemap';
@@ -576,10 +576,7 @@ function heatColor(pct: number | null | undefined, clamp: number) {
   const t = Math.max(-1, Math.min(1, pct / clamp));
   const mix = (a: number[], b: number[], k: number) =>
     a.map((v, i) => Math.round(v + (b[i] - v) * k));
-  const neutral = [56, 76, 94];
-  const good = [79, 183, 158];
-  const bad = [224, 100, 95];
-  const [r, g, b] = t >= 0 ? mix(neutral, good, t) : mix(neutral, bad, -t);
+  const [r, g, b] = t >= 0 ? mix(RGB.panel2, RGB.good, t) : mix(RGB.panel2, RGB.bad, -t);
   return `rgb(${r},${g},${b})`;
 }
 

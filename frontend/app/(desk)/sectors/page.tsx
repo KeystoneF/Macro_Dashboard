@@ -6,7 +6,7 @@ import * as T from '../../theme';
 import { COLOR, FONT, RADIUS, card } from '../../theme';
 import { niceScale, tickDigits } from '../../lib/scale';
 import { getJson } from '../../lib/api';
-import { fmtPct, pctColor } from '../../lib/format';
+import { fmtPct, pctColor, pctWash } from '../../lib/format';
 import { svgToPng } from '../../lib/png';
 import {
   plotH,
@@ -56,6 +56,26 @@ type Valuation = {
   yardeni: { page: string; source: string; charts: { id: string; label: string }[] };
 };
 
+type Stat = { months: (number | null)[]; year: number | null };
+type StatName = 'average' | 'median' | 'positive' | 'size' | 'stdev' | 'best' | 'worst';
+
+type Seasonality = {
+  symbol: string;
+  label: string;
+  years: number;
+  rows: {
+    year: number;
+    months: (number | null)[];
+    change: number | null;
+    best: number | null;
+    worst: number | null;
+  }[];
+  summary: (Record<StatName, Stat> & { n: { months: number[]; year: number } }) | null;
+  from: string | null;
+  through: string | null;
+  partial: string | null;
+};
+
 const PERIODS = ['1D', '1W', '1M', '3M', 'YTD', '1Y'];
 const REFRESH_MS = 60_000;
 
@@ -73,6 +93,24 @@ const CAPE_SPANS: [string, number | null][] = [
   ['25Y', 25],
   ['50Y', 50],
   ['All', null],
+];
+
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const SEASON_YEARS = [5, 10, 20];
+
+// an eight percent month is as far as the wash goes
+const SEASON_CLAMP = 8;
+
+// stat name, row label, and how the figure is coloured
+const SEASON_STATS: [StatName, string, Kind][] = [
+  ['average', 'Average', 'wash'],
+  ['median', 'Median', 'wash'],
+  ['positive', 'Percent positive', 'share'],
+  ['size', 'Average move, size', 'size'],
+  ['stdev', 'Standard deviation', 'size'],
+  ['best', 'Best', 'move'],
+  ['worst', 'Worst', 'move'],
 ];
 
 // Retry valuation loading while the workbook cache warms.
@@ -101,6 +139,10 @@ export default function SectorTrackerPage() {
   const capeRef = useRef<SVGSVGElement | null>(null);
   const [capeHover, setCapeHover] = useState<number | null>(null);
   const [capeSpan, setCapeSpan] = useState<number | null>(null);
+  const [loadedSeason, setLoadedSeason] = useState<Seasonality | null>(null);
+  const [seasonFail, setSeasonFail] = useState<{ of: string; message: string } | null>(null);
+  const [seasonPick, setSeasonPick] = useState<string | null>(null);
+  const [seasonYears, setSeasonYears] = useState(10);
 
   useEffect(() => {
     let live = true;
@@ -162,6 +204,37 @@ export default function SectorTrackerPage() {
       return y - x;
     });
   }, [data, period]);
+
+  // The board's own order, benchmark first, rather than the ranking above.
+  const seasonOptions = useMemo(
+    () => (data ? [data.benchmark, ...data.rows].map((r) => ({ symbol: r.symbol, label: r.label })) : []),
+    [data],
+  );
+
+  // A sector picked on one board has no line on the other, so the benchmark takes over.
+  const seasonSymbol = seasonOptions.some((o) => o.symbol === seasonPick)
+    ? (seasonPick as string)
+    : data?.benchmark.symbol ?? null;
+
+  useEffect(() => {
+    if (!seasonSymbol) return;
+    let live = true;
+    const of = seasonKey(seasonSymbol, seasonYears);
+
+    getJson<Seasonality>(`/api/markets/seasonality?symbol=${encodeURIComponent(seasonSymbol)}&years=${seasonYears}`)
+      .then((d) => live && setLoadedSeason(d))
+      .catch((e) => live && setSeasonFail({ of, message: e.message }));
+
+    return () => {
+      live = false;
+    };
+  }, [seasonSymbol, seasonYears]);
+
+  // the previous symbol's rows must not sit under the new one's heading while
+  // it loads, and its error must not outlive it either
+  const asked = seasonKey(seasonSymbol, seasonYears);
+  const season = loadedSeason && seasonKey(loadedSeason.symbol, loadedSeason.years) === asked ? loadedSeason : null;
+  const seasonError = seasonFail?.of === asked ? seasonFail.message : null;
 
   const chart = useMemo(() => {
     const values = ranked.map((r) => r.changePct[period]).filter((v): v is number => v != null);
@@ -589,6 +662,119 @@ export default function SectorTrackerPage() {
       <section style={{ ...card, marginTop: 16 }}>
         <div style={T.cardHead}>
           <div>
+            <h2 style={T.h2}>Monthly percent change</h2>
+            <p style={{ ...T.desc, marginBottom: 0 }}>
+              Each month end close against the month end before it
+            </p>
+          </div>
+          <div style={T.readout}>
+            {season && season.rows.length < seasonYears && season.from && (
+              <span>First print {season.from}</span>
+            )}
+            {season?.through && <span>Through {season.through}</span>}
+            {season?.partial && (
+              <span style={{ color: COLOR.accentLt }}>{monthName(season.partial)} still trading</span>
+            )}
+          </div>
+        </div>
+
+        <div style={T.controls}>
+          <select value={seasonSymbol ?? ''} onChange={(e) => setSeasonPick(e.target.value)} style={T.input}>
+            {seasonOptions.map((o) => (
+              <option key={o.symbol} value={o.symbol}>
+                {o.label}, {o.symbol}
+              </option>
+            ))}
+          </select>
+
+          {SEASON_YEARS.map((y) => (
+            <button
+              key={y}
+              style={{ ...T.control, ...(seasonYears === y ? T.controlOn : {}) }}
+              onClick={() => setSeasonYears(y)}
+            >
+              {y}Y
+            </button>
+          ))}
+
+          <div style={T.spacer} />
+          <a
+            style={{ ...T.control, ...(season ? {} : T.controlOff) }}
+            href={`/api/markets/csv?kind=seasonality&symbol=${encodeURIComponent(seasonSymbol ?? '')}&years=${seasonYears}`}
+          >
+            CSV
+          </a>
+        </div>
+
+        {!season ? (
+          <p style={{ ...T.desc, margin: '14px 0 0' }}>{seasonError ?? 'Loading'}</p>
+        ) : (
+          <div style={T.scrollX}>
+            <table style={{ ...T.table, minWidth: 900 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...T.th, padding: '0 7px 6px' }}>Year</th>
+                  {MONTH_LABELS.map((m) => (
+                    <th key={m} style={S.head}>
+                      {m}
+                    </th>
+                  ))}
+                  <th style={S.head}>Year</th>
+                  <th style={S.head}>Best</th>
+                  <th style={S.head}>Worst</th>
+                </tr>
+              </thead>
+              <tbody>
+                {season.rows.map((r) => (
+                  <tr key={r.year}>
+                    <td style={{ ...S.cell, textAlign: 'left', color: COLOR.ink }}>{r.year}</td>
+                    {r.months.map((v, i) => (
+                      <Figure key={MONTH_LABELS[i]} value={v} />
+                    ))}
+                    <Figure value={r.change} />
+                    <Figure value={r.best} kind="move" />
+                    <Figure value={r.worst} kind="move" />
+                  </tr>
+                ))}
+
+                {season.summary && (
+                  <>
+                    <tr>
+                      <td style={S.band} colSpan={16}>
+                        Across the years above
+                      </td>
+                    </tr>
+                    {SEASON_STATS.map(([name, label, kind]) => (
+                      <tr key={name}>
+                        <td style={{ ...S.cell, textAlign: 'left', color: COLOR.dim }}>{label}</td>
+                        {season.summary![name].months.map((v, i) => (
+                          <Figure
+                            key={MONTH_LABELS[i]}
+                            value={v}
+                            kind={kind}
+                            title={years(season.summary!.n.months[i], season.rows.length)}
+                          />
+                        ))}
+                        <Figure
+                          value={season.summary![name].year}
+                          kind={kind}
+                          title={years(season.summary!.n.year, season.rows.length)}
+                        />
+                        <td style={S.cell} />
+                        <td style={S.cell} />
+                      </tr>
+                    ))}
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section style={{ ...card, marginTop: 16 }}>
+        <div style={T.cardHead}>
+          <div>
             <h2 style={T.h2}>Forward P/E ratios</h2>
             <p style={{ ...T.desc, marginBottom: 0 }}>
               Yardeni Research, draws from LSEG Datastream
@@ -622,6 +808,25 @@ export default function SectorTrackerPage() {
         />
       </section>
     </main>
+  );
+}
+
+type Kind = 'wash' | 'move' | 'size' | 'share';
+
+// One grid figure. A move is coloured by direction, a size and a share are not.
+function Figure({ value, kind = 'wash', title }: { value: number | null; kind?: Kind; title?: string }) {
+  const ink = kind === 'size' ? COLOR.dim : kind === 'share' ? COLOR.ink : pctColor(value);
+  return (
+    <td
+      title={title}
+      style={{
+        ...S.cell,
+        color: value == null ? COLOR.dim : ink,
+        background: kind === 'wash' ? pctWash(value, SEASON_CLAMP) : undefined,
+      }}
+    >
+      {value == null ? 'n/a' : value.toFixed(kind === 'share' ? 0 : 1)}
+    </td>
   );
 }
 
@@ -693,8 +898,31 @@ const monthLabel = (period?: string | null) =>
 
 const capeFile = (years: number | null) => (years == null ? 'all' : `${years}y`);
 
+const seasonKey = (symbol: string | null, years: number) => `${symbol}:${years}`;
+
+const monthName = (period: string) =>
+  new Date(toTime(period)).toLocaleString('en-CA', { month: 'long', timeZone: 'UTC' });
+
+// A column whose fund was not listed for every year has a shorter denominator
+// than the one beside it.
+const years = (n: number, of: number) => `${n} of ${of} years`;
+
 const S: Record<string, CSSProperties> = {
   grid: T.splitWide,
+
+  head: { ...T.th, textAlign: 'right', padding: '0 7px 6px' },
+
+  // tighter than the shared cell so sixteen columns fit, padded so two washes
+  // beside each other do not run together
+  cell: { ...T.td, textAlign: 'right', padding: '7px' },
+
+  band: {
+    ...T.td,
+    padding: '12px 7px 6px',
+    color: COLOR.dim,
+    fontSize: 11,
+    borderBottom: `1px solid ${COLOR.line}`,
+  },
 
   // white ground behind the publisher's chart
   paper: {

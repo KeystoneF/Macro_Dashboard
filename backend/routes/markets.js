@@ -4,6 +4,7 @@ const { FX, COMMODITIES, BRIEF, SECTOR_SYMBOLS, sectorBoard, PERIODS } = require
 const { fail } = require('../redact');
 const { row } = require('../csv');
 const { cached, num } = require('../providers');
+const { seasonality, MONTH_KEYS, STATS } = require('../seasonality');
 const fetch = require('../http');
 
 const BASE = 'https://financialmodelingprep.com/stable';
@@ -271,6 +272,48 @@ router.get('/history', async (req, res) => {
   }
 });
 
+const SEASONALITY_YEARS = [5, 10, 20];
+// the running month is the only cell that moves during a session
+const SEASONALITY_CACHE_MS = 10 * 60_000;
+
+// December of the year before the first row, which is what its January is
+// measured against.
+const seasonalityFrom = (years) => `${new Date().getFullYear() - years}-12-01`;
+
+async function seasonalityTable(symbol, years) {
+  const raw = await fmp(
+    `/historical-price-eod/light?symbol=${encodeURIComponent(symbol)}&from=${seasonalityFrom(years)}&to=${isoAgo(0)}`,
+    SEASONALITY_CACHE_MS,
+  );
+
+  const points = (Array.isArray(raw) ? raw : [])
+    .map((p) => ({ d: p.date, v: num(p.price) }))
+    .filter((p) => p.d && p.v !== null)
+    .sort((a, b) => a.d.localeCompare(b.d));
+
+  return {
+    symbol,
+    label: KNOWN.get(symbol).label,
+    years,
+    ...(seasonality(points, years) ?? { rows: [], summary: null, from: null, through: null, partial: null }),
+  };
+}
+
+// Percent change of each calendar month against the one before it.
+router.get('/seasonality', async (req, res) => {
+  const symbol = String(req.query.symbol || '');
+  const years = Number(req.query.years || 10);
+
+  if (!KNOWN.has(symbol)) return res.status(400).json({ error: `unknown symbol: ${symbol || 'none'}` });
+  if (!SEASONALITY_YEARS.includes(years)) return res.status(400).json({ error: `unknown window: ${req.query.years}` });
+
+  try {
+    res.json(await seasonalityTable(symbol, years));
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 // Long format, matching the series explorer's export. Prices are passthrough,
 // so this is the only way a board leaves the app as data.
 function sendCsv(res, filename, header, rows) {
@@ -281,10 +324,33 @@ function sendCsv(res, filename, header, rows) {
 
 router.get('/csv', async (req, res) => {
   const kind = String(req.query.kind || 'fx');
-  if (!['fx', 'commodities', 'sectors'].includes(kind)) {
+  if (!['fx', 'commodities', 'sectors', 'seasonality'].includes(kind)) {
     return res.status(400).json({ error: `unknown export: ${kind}` });
   }
   try {
+    if (kind === 'seasonality') {
+      const symbol = String(req.query.symbol || '');
+      const years = Number(req.query.years || 10);
+      if (!KNOWN.has(symbol)) return res.status(400).json({ error: `unknown symbol: ${symbol || 'none'}` });
+      if (!SEASONALITY_YEARS.includes(years)) {
+        return res.status(400).json({ error: `unknown window: ${req.query.years}` });
+      }
+
+      const { rows, summary } = await seasonalityTable(symbol, years);
+      return sendCsv(
+        res,
+        `seasonality-${symbol.replace('.', '-')}-${years}y.csv`,
+        `row,${MONTH_KEYS.join(',')},year,best,worst`,
+        [
+          ...rows.map((r) => row([r.year, ...r.months, r.change, r.best, r.worst])),
+          // summary rows carry no best or worst of their own
+          ...(summary ? STATS : []).map(([name, label]) =>
+            row([label, ...summary[name].months, summary[name].year, null, null]),
+          ),
+        ],
+      );
+    }
+
     if (kind === 'sectors') {
       const board = boardOf(req);
       if (!board) return res.status(400).json({ error: `unknown board: ${req.query.board}` });
